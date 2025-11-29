@@ -14,8 +14,8 @@ from .design_analyzer import (
 from .service_advisor import (
     ServiceAdvisor,
     ServiceOption,
-    ServiceCategory,
-    ComparisonCriteria,
+    ServiceComparison,
+    ComponentType as ServiceComponentType,
     lambda_handler as service_advisor_handler
 )
 
@@ -28,7 +28,7 @@ __all__ = [
     'design_analyzer_handler',
     'ServiceAdvisor',
     'ServiceOption',
-    'ServiceCategory',
-    'ComparisonCriteria',
+    'ServiceComparison',
+    'ServiceComponentType',
     'service_advisor_handler'
 ]
