@@ -1,0 +1,29 @@
+# Example Terraform Variables Configuration
+# Copy this file to terraform.tfvars and update with your values
+
+# Project Configuration
+project_name = "aws-migration-agent"
+environment  = "dev"
+aws_region   = "us-east-1"
+
+# S3 Bucket Names (leave empty to auto-generate with account ID)
+# If you want custom names, uncomment and set values:
+# documents_bucket_name = "my-custom-documents-bucket"
+# reports_bucket_name   = "my-custom-reports-bucket"
+# anz_docs_bucket_name  = "my-custom-anz-docs-bucket"
+
+# Knowledge Base Configuration
+knowledge_base_name = "anz-migration-kb"
+
+# Embedding Model ARN for Knowledge Base
+# Default: Amazon Titan Embed Text v2
+embedding_model_arn = "arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v2:0"
+
+# Common Tags
+tags = {
+  Project     = "AWS Migration Agent"
+  ManagedBy   = "Terraform"
+  Environment = "dev"
+  Team        = "Migration Team"
+  CostCenter  = "Engineering"
+}

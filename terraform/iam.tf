@@ -66,7 +66,7 @@ resource "aws_iam_policy" "bedrock_poc_policy" {
         Resource = "*"
       },
       {
-        Sid = "BedrockAgentCorePermission"
+        Sid    = "BedrockAgentCorePermission"
         Effect = "Allow"
         Action = [
           "bedrock-agentcore:Get*",
@@ -83,7 +83,7 @@ resource "aws_iam_policy" "bedrock_poc_policy" {
         Resource = "*"
       },
       {
-        Sid = "ECRAccess"
+        Sid    = "ECRAccess"
         Effect = "Allow"
         Action = [
           "ecr:BatchGetImage",
@@ -93,7 +93,7 @@ resource "aws_iam_policy" "bedrock_poc_policy" {
         Resource = "*"
       },
       {
-        Sid = "BedrockAgentCoreWorkloadAccess"
+        Sid    = "BedrockAgentCoreWorkloadAccess"
         Effect = "Allow"
         Action = [
           "bedrock-agentcore:GetWorkloadAccessToken",
@@ -103,7 +103,7 @@ resource "aws_iam_policy" "bedrock_poc_policy" {
         Resource = "*"
       },
       {
-        Sid = "BedrockAgentCoreObservability"
+        Sid    = "BedrockAgentCoreObservability"
         Effect = "Allow"
         Action = [
           "application-signals:StartDiscovery"
@@ -111,7 +111,7 @@ resource "aws_iam_policy" "bedrock_poc_policy" {
         Resource = "*"
       },
       {
-        Sid = "AmazonBedrockReadOnly"
+        Sid    = "AmazonBedrockReadOnly"
         Effect = "Allow"
         Action = [
           "bedrock:Get*",
@@ -122,7 +122,7 @@ resource "aws_iam_policy" "bedrock_poc_policy" {
         Resource = "*"
       },
       {
-        Sid = "EC2Permissions"
+        Sid    = "EC2Permissions"
         Effect = "Allow"
         Action = [
           "ec2:DescribeVpcs",
@@ -131,7 +131,7 @@ resource "aws_iam_policy" "bedrock_poc_policy" {
         Resource = "*"
       },
       {
-        Sid = "BedrockPolicies"
+        Sid    = "BedrockPolicies"
         Effect = "Allow"
         Action = [
           "bedrock:InvokeModel",
@@ -145,7 +145,7 @@ resource "aws_iam_policy" "bedrock_poc_policy" {
         Resource = "*"
       },
       {
-        Sid = "BedrockModelSubscriptions"
+        Sid    = "BedrockModelSubscriptions"
         Effect = "Allow"
         Action = [
           "aws-marketplace:Subscribe",
@@ -223,7 +223,7 @@ resource "aws_iam_policy" "bedrock_poc_policy" {
         Effect = "Deny"
       },
       {
-        Sid = "PassRoleToBedrock"
+        Sid    = "PassRoleToBedrock"
         Effect = "Allow"
         Action = [
           "iam:*"
@@ -234,13 +234,13 @@ resource "aws_iam_policy" "bedrock_poc_policy" {
         ]
       },
       {
-        Sid = "PassRole"
+        Sid      = "PassRole"
         Resource = "arn:aws:iam::*:role/*"
-        Action = "iam:PassRole"
-        Effect = "Allow"
+        Action   = "iam:PassRole"
+        Effect   = "Allow"
       },
       {
-        Sid = "DenyBedrockModelAccessForOtherModels"
+        Sid    = "DenyBedrockModelAccessForOtherModels"
         Effect = "Deny"
         Action = [
           "bedrock:InvokeModel",
