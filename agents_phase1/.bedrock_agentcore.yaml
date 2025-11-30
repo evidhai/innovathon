@@ -1,0 +1,158 @@
+default_agent: demo_agent
+agents:
+  strands_claude_getting_started:
+    name: strands_claude_getting_started
+    entrypoint: /Users/vasan/2 Areas/Repo/innovathon/agents/main_v1.py
+    deployment_type: container
+    runtime_type: null
+    platform: linux/arm64
+    container_runtime: none
+    source_path: null
+    aws:
+      execution_role: null
+      execution_role_auto_create: true
+      account: 095059577505
+      region: us-east-1
+      ecr_repository: null
+      ecr_auto_create: true
+      s3_path: null
+      s3_auto_create: false
+      network_configuration:
+        network_mode: PUBLIC
+        network_mode_config: null
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+      lifecycle_configuration:
+        idle_runtime_session_timeout: null
+        max_lifetime: null
+    bedrock_agentcore:
+      agent_id: null
+      agent_arn: null
+      agent_session_id: null
+    codebuild:
+      project_name: null
+      execution_role: null
+      source_bucket: null
+    memory:
+      mode: NO_MEMORY
+      memory_id: null
+      memory_arn: null
+      memory_name: null
+      event_expiry_days: 30
+      first_invoke_memory_check_done: false
+      was_created_by_toolkit: false
+    identity:
+      credential_providers: []
+      workload: null
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null
+    api_key_env_var_name: null
+    api_key_credential_provider_name: null
+    is_generated_by_agentcore_create: false
+  main_agent:
+    name: main_agent
+    entrypoint: /Users/vasan/2 Areas/Repo/innovathon/agents/main.py
+    deployment_type: container
+    runtime_type: null
+    platform: linux/arm64
+    container_runtime: none
+    source_path: null
+    aws:
+      execution_role: null
+      execution_role_auto_create: true
+      account: 095059577505
+      region: us-east-1
+      ecr_repository: null
+      ecr_auto_create: true
+      s3_path: null
+      s3_auto_create: false
+      network_configuration:
+        network_mode: PUBLIC
+        network_mode_config: null
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+      lifecycle_configuration:
+        idle_runtime_session_timeout: null
+        max_lifetime: null
+    bedrock_agentcore:
+      agent_id: main_agent-NncNkGFJPn
+      agent_arn: arn:aws:bedrock-agentcore:us-east-1:095059577505:runtime/main_agent-NncNkGFJPn
+      agent_session_id: null
+    codebuild:
+      project_name: null
+      execution_role: null
+      source_bucket: null
+    memory:
+      mode: NO_MEMORY
+      memory_id: null
+      memory_arn: null
+      memory_name: null
+      event_expiry_days: 30
+      first_invoke_memory_check_done: false
+      was_created_by_toolkit: false
+    identity:
+      credential_providers: []
+      workload: null
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null
+    api_key_env_var_name: null
+    api_key_credential_provider_name: null
+    is_generated_by_agentcore_create: false
+  demo_agent:
+    name: demo_agent
+    entrypoint: /Users/vasan/2 Areas/Repo/innovathon/agents_phase1/main.py
+    deployment_type: container
+    runtime_type: null
+    platform: linux/arm64
+    container_runtime: none
+    source_path: null
+    aws:
+      execution_role: arn:aws:iam::095059577505:role/AmazonBedrockAgentCoreSDKRuntime-us-east-1-20b5f127ba
+      execution_role_auto_create: false
+      account: 095059577505
+      region: us-east-1
+      ecr_repository: 095059577505.dkr.ecr.us-east-1.amazonaws.com/bedrock-agentcore-demo_agent
+      ecr_auto_create: false
+      s3_path: null
+      s3_auto_create: false
+      network_configuration:
+        network_mode: PUBLIC
+        network_mode_config: null
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+      lifecycle_configuration:
+        idle_runtime_session_timeout: null
+        max_lifetime: null
+    bedrock_agentcore:
+      agent_id: demo_agent-SXq68QBdpz
+      agent_arn: arn:aws:bedrock-agentcore:us-east-1:095059577505:runtime/demo_agent-SXq68QBdpz
+      agent_session_id: null
+    codebuild:
+      project_name: bedrock-agentcore-demo_agent-builder
+      execution_role: arn:aws:iam::095059577505:role/AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-20b5f127ba
+      source_bucket: bedrock-agentcore-codebuild-sources-095059577505-us-east-1
+    memory:
+      mode: NO_MEMORY
+      memory_id: null
+      memory_arn: null
+      memory_name: null
+      event_expiry_days: 30
+      first_invoke_memory_check_done: false
+      was_created_by_toolkit: false
+    identity:
+      credential_providers: []
+      workload: null
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null
+    api_key_env_var_name: null
+    api_key_credential_provider_name: null
+    is_generated_by_agentcore_create: false
