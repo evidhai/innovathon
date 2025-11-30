@@ -13,6 +13,8 @@ from bedrock_agentcore.runtime import BedrockAgentCoreApp
 app = BedrockAgentCoreApp()
 
 
+
+
 @tool
 def arch_diag_assistant(payload):
     """
