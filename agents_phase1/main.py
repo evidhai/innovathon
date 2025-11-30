@@ -14,10 +14,12 @@ def weather():
     return "sunny"
 
 
+
 model_id = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 model = BedrockModel(
     model_id=model_id,
 )
+
 agent = Agent(
     model=model,
     tools=[calculator, weather],
@@ -36,18 +38,3 @@ def strands_agent_bedrock(payload):
 
 if __name__ == "__main__":
    app.run()
-
-
-launch_result = agentcore_runtime.launch()
-
-
-import time
-status_response = agentcore_runtime.status()
-status = status_response.endpoint['status']
-end_status = ['READY', 'CREATE_FAILED', 'DELETE_FAILED', 'UPDATE_FAILED']
-while status not in end_status:
-    time.sleep(10)
-    status_response = agentcore_runtime.status()
-    status = status_response.endpoint['status']
-    print(status)
-status
