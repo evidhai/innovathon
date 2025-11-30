@@ -10,7 +10,7 @@ agent_name = "costanalysis_agent"
 
 ### To Configure the agent runtime - Generate Docker files
 response = agentcore_runtime.configure(
-    entrypoint="costanalysis_agent.py",
+    entrypoint="costanalysis_agent_v2.py",
     auto_create_execution_role=True,
     auto_create_ecr=True,
     requirements_file="requirements.txt",

@@ -2,10 +2,10 @@ import boto3
 import json
 
 client = boto3.client('bedrock-agentcore', region_name='us-east-1')
-payload = json.dumps({"prompt": "Explain machine learning in simple terms"})
+payload = json.dumps({"prompt": "Generate an architecture diagram for a web application using AWS services as png file"})
 
 response = client.invoke_agent_runtime(
-    agentRuntimeArn='arn:aws:bedrock-agentcore:us-east-1:095059577505:runtime/websearch_agent-Slv3QACoYg',
+    agentRuntimeArn='arn:aws:bedrock-agentcore:us-east-1:095059577505:runtime/arch_diag_agent-LQ6klZHOPF',
     runtimeSessionId='dfmeoagmreaklgmrkleafremoigrmtesogmtrskhmtkrlshmt',  # Must be 33+ chars
     payload=payload,
     qualifier="DEFAULT" # Optional

@@ -6,11 +6,11 @@ boto_session = Session()
 region = boto_session.region_name
 
 agentcore_runtime = Runtime()
-agent_name = "demo_agent"
+agent_name = "arch_diag_agent"
 
 ### To Configure the agent runtime - Generate Docker files
 response = agentcore_runtime.configure(
-    entrypoint="main.py",
+    entrypoint="arch_diag_agent.py",
     auto_create_execution_role=True,
     auto_create_ecr=True,
     requirements_file="requirements.txt",

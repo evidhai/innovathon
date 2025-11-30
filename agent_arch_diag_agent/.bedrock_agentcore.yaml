@@ -1,19 +1,19 @@
-default_agent: costanalysis_agent
+default_agent: arch_diag_agent
 agents:
-  costanalysis_agent:
-    name: costanalysis_agent
-    entrypoint: /Users/vasan/2 Areas/Repo/innovathon/agent_cost/costanalysis_agent_v2.py
+  arch_diag_agent:
+    name: arch_diag_agent
+    entrypoint: /Users/vasan/2 Areas/Repo/innovathon/agent_arch_diag_agent/arch_diag_agent.py
     deployment_type: container
     runtime_type: null
     platform: linux/arm64
     container_runtime: none
     source_path: null
     aws:
-      execution_role: arn:aws:iam::095059577505:role/AmazonBedrockAgentCoreSDKRuntime-us-east-1-bd922cf9f9
+      execution_role: arn:aws:iam::095059577505:role/AmazonBedrockAgentCoreSDKRuntime-us-east-1-5ec3949b5b
       execution_role_auto_create: false
       account: 095059577505
       region: us-east-1
-      ecr_repository: 095059577505.dkr.ecr.us-east-1.amazonaws.com/bedrock-agentcore-costanalysis_agent
+      ecr_repository: 095059577505.dkr.ecr.us-east-1.amazonaws.com/bedrock-agentcore-arch_diag_agent
       ecr_auto_create: false
       s3_path: null
       s3_auto_create: false
@@ -28,12 +28,12 @@ agents:
         idle_runtime_session_timeout: null
         max_lifetime: null
     bedrock_agentcore:
-      agent_id: costanalysis_agent-Ou7vUr51Nz
-      agent_arn: arn:aws:bedrock-agentcore:us-east-1:095059577505:runtime/costanalysis_agent-Ou7vUr51Nz
+      agent_id: arch_diag_agent-LQ6klZHOPF
+      agent_arn: arn:aws:bedrock-agentcore:us-east-1:095059577505:runtime/arch_diag_agent-LQ6klZHOPF
       agent_session_id: null
     codebuild:
-      project_name: bedrock-agentcore-costanalysis_agent-builder
-      execution_role: arn:aws:iam::095059577505:role/AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-bd922cf9f9
+      project_name: bedrock-agentcore-arch_diag_agent-builder
+      execution_role: arn:aws:iam::095059577505:role/AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-5ec3949b5b
       source_bucket: bedrock-agentcore-codebuild-sources-095059577505-us-east-1
     memory:
       mode: NO_MEMORY

@@ -5,7 +5,7 @@ client = boto3.client('bedrock-agentcore', region_name='us-east-1')
 payload = json.dumps({"prompt": "Explain machine learning in simple terms"})
 
 response = client.invoke_agent_runtime(
-    agentRuntimeArn='arn:aws:bedrock-agentcore:us-east-1:095059577505:runtime/main_agent-NncNkGFJPn',
+    agentRuntimeArn='arn:aws:bedrock-agentcore:us-east-1:095059577505:runtime/demo_agent-SXq68QBdpz',
     runtimeSessionId='dfmeoagmreaklgmrkleafremoigrmtesogmtrskhmtkrlshmt',  # Must be 33+ chars
     payload=payload,
     qualifier="DEFAULT" # Optional

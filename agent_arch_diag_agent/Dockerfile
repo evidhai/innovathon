@@ -38,4 +38,4 @@ COPY . .
 
 # Use the full module path
 
-CMD ["opentelemetry-instrument", "python", "-m", "costanalysis_agent_v2"]
+CMD ["opentelemetry-instrument", "python", "-m", "arch_diag_agent"]
