@@ -13,6 +13,7 @@ from mcp import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.server import FastMCP
 from strands import Agent, tool
+from strands_tools import generate_image, image_reader , use_aws
 from strands.tools.mcp import MCPClient
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from strands.hooks import AgentInitializedEvent, HookProvider, MessageAddedEvent
@@ -68,125 +69,210 @@ class SessionMemoryHookProvider(HookProvider):
 session_memory_provider = SessionMemoryHookProvider(memory_client)
 
 
-@tool
-def input_agent(query: str) -> str:
-    """
-    Analyzes architecture diagrams from S3 bucket 'innovathon-poc-docs-anz'.
+# @tool
+# def input_agent(query: str) -> str:
+#     """
+#     Analyzes architecture diagrams from S3 bucket 'innovathon-poc-docs-anz' using image_reader tool.
     
-    This tool processes HLD/LLD diagrams using AWS Nova Vision multimodal model:
-    - Extracts text and architecture components from images
-    - Analyzes relationships, services, and design patterns
-    - Returns structured analysis as JSON
+#     This tool processes HLD/LLD diagrams and extracts:
+#     - Text and architecture components from images
+#     - Relationships, services, and design patterns
+#     - Returns structured analysis as JSON
+    
+#     Args:
+#         query: Filename in the S3 bucket (e.g., 'appa.jpeg', 'diagram.png')
+    
+#     Returns:
+#         JSON string with extracted architecture information
+    
+#     Example:
+#         "Analyze the file appa.jpeg"
+#     """
+#     logger.info(f"input_agent called with query: {query}")
+    
+#     # Default S3 bucket
+#     bucket = "innovathon-poc-docs-anz"
+    
+#     # Extract filename from query
+#     import re
+#     filename_match = re.search(r'([\w\-\.]+\.(?:png|jpg|jpeg|pdf|gif))', query, re.IGNORECASE)
+    
+#     if not filename_match:
+#         return json.dumps({
+#             "status": "error",
+#             "message": f"Could not extract filename from query. Please specify a file like 'appa.jpeg'. Query: {query}"
+#         })
+    
+#     filename = filename_match.group(1)
+#     logger.info(f"Extracted filename: {filename}")
+    
+#     # Construct S3 URI
+#     s3_uri = f"s3://{bucket}/{filename}"
+#     logger.info(f"Analyzing image from: {s3_uri}")
+    
+#     try:
+#         # Create an agent with image_reader tool to analyze the S3 image
+#         from strands_tools import image_reader as image_reader_tool
+        
+#         analysis_prompt = f"""Analyze this architecture diagram comprehensively. Extract:
+
+# 1. All visible text and labels
+# 2. System components and their relationships
+# 3. Data flows and integrations
+# 4. Infrastructure elements (servers, databases, networks)
+# 5. Security components
+# 6. Technology stack identified
+
+# Provide the analysis in JSON format with keys:
+# - components: list of all components
+# - data_flows: list of data movement patterns
+# - integrations: external systems
+# - infrastructure: servers, databases, networks
+# - technologies: identified tech stack
+# - architecture_pattern: detected pattern (microservices, monolith, etc.)
+# - extracted_text: all visible text"""
+
+#         # Create a simple agent to use image_reader tool
+#         logger.info("Creating analysis agent with image_reader tool...")
+#         analysis_agent = Agent(
+#             model="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+#             tools=[image_reader_tool],
+#             system_prompt="You are an architecture diagram analyzer. Use the image_reader tool to analyze images from S3."
+#         )
+        
+#         # Call the agent with the analysis request
+#         logger.info(f"Calling agent to analyze {s3_uri}...")
+#         agent_query = f"Use the image_reader tool to analyze the image at {s3_uri}. {analysis_prompt}"
+#         response = analysis_agent(agent_query)
+        
+#         # Extract the analysis result
+#         analysis_result = response.message['content'][0]['text']
+#         logger.info(f"✓ Analysis completed, length: {len(analysis_result)}")
+        
+#         # Parse the result
+#         try:
+#             analysis_json = json.loads(analysis_result)
+#         except json.JSONDecodeError:
+#             # If not valid JSON, wrap it
+#             analysis_json = {
+#                 "raw_analysis": analysis_result,
+#                 "note": "Analysis not in JSON format"
+#             }
+        
+#         # Store in memory
+#         memory_id = f"doc_{uuid4().hex[:8]}"
+#         agentcore_memory[memory_id] = {
+#             "doc_id": memory_id,
+#             "s3_bucket": bucket,
+#             "s3_key": filename,
+#             "timestamp": time.time(),
+#             "analysis": analysis_json
+#         }
+#         logger.info(f"Stored analysis in memory as {memory_id}")
+        
+#         result = {
+#             "status": "success",
+#             "filename": filename,
+#             "bucket": bucket,
+#             "s3_uri": s3_uri,
+#             "memory_id": memory_id,
+#             "analysis": analysis_json
+#         }
+        
+#         return json.dumps(result, indent=2)
+        
+#     except Exception as e:
+#         logger.exception(f"✗ Error processing {filename}")
+#         error_result = {
+#             "status": "error",
+#             "message": f"Error processing file: {str(e)}",
+#             "error_type": type(e).__name__,
+#             "s3_uri": s3_uri
+#         }
+#         return json.dumps(error_result, indent=2)
+
+
+@tool
+def read_hld_agent(payload):
+    """
+    Reads and summarizes High-Level Design (HLD) documents from S3 bucket 'innovathon-poc-docs-anz'.
+    
+    This tool processes HLD documents (PDF, DOCX) and extracts:
+    - Key architecture components
+    - Design patterns
+    - Technology stack
+    - Security considerations
+    - Scalability and reliability features
     
     Args:
-        query: Filename in the S3 bucket (e.g., 'architecture.png' or 'analyze diagram.png')
+        payload: Structured payload with 'filename' key
     
     Returns:
-        JSON string with extracted architecture information
+        JSON string with extracted HLD information
     
-    Example:
-        "Analyze the file architecture-v2.png from the bucket"
+    Example payload:
+        {
+            "filename": "hld_document.pdf"
+        }
     """
-    logger.info(f"input_agent called with query: {query}")
+    logger.info(f"read_hld_agent called with payload: {payload}")
     
     # Default S3 bucket
     bucket = "innovathon-poc-docs-anz"
     
-    # Extract filename from query (simple pattern matching)
-    # Look for common image extensions
-    import re
-    filename_match = re.search(r'([\w\-\.]+\.(?:png|jpg|jpeg|pdf|gif))', query, re.IGNORECASE)
-    
-    if not filename_match:
+    filename = payload.get("filename")
+    if not filename:
         return json.dumps({
             "status": "error",
-            "message": f"Could not extract filename from query. Please specify a file like 'architecture.png'. Query: {query}"
+            "message": "Filename not provided in payload."
         })
     
-    filename = filename_match.group(1)
-    logger.info(f"Extracted filename: {filename}")
+    # Construct S3 URI
+    s3_uri = f"s3://{bucket}/{filename}"
+    logger.info(f"Reading HLD document from: {s3_uri}")
     
     try:
-        s3_client = boto3.client("s3")
+        # Create an agent with document reading tools to analyze the HLD document
+        from strands_tools import document_reader as document_reader_tool
         
-        # Download image from S3
-        temp_dir = Path(tempfile.mkdtemp(prefix="arch_analysis_"))
-        local_path = temp_dir / filename
-        
-        logger.info(f"Downloading s3://{bucket}/{filename}")
-        s3_client.download_file(bucket, filename, str(local_path))
-        logger.info(f"Downloaded to {local_path}")
-        
-        # Read and encode image
-        with open(local_path, "rb") as f:
-            image_bytes = f.read()
-        
-        # Use Nova Vision with proper multimodal input format
-        import boto3
-        bedrock_runtime = boto3.client('bedrock-runtime', region_name='us-east-1')
-        
-        # Nova Vision expects multimodal content
-        request_body = {
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {
-                        "text": """Analyze this architecture diagram comprehensively. Extract:
-1. All visible text and labels
-2. System components and their relationships
-3. Data flows and integrations
-4. Infrastructure elements (servers, databases, networks)
-5. Security components
-6. Technology stack
-
+        analysis_prompt = f"""Analyze this High-Level Design (HLD) document comprehensively. Extract:
+1. Key architecture components
+2. Design patterns used
+3. Technology stack
+4. Security considerations
+5. Scalability and reliability features
 Provide the analysis in JSON format with keys:
-- components: list of all components
-- data_flows: list of data movement patterns
-- integrations: external systems
-- infrastructure: servers, databases, networks
-- technologies: identified tech stack
-- architecture_pattern: detected pattern (microservices, monolith, etc.)
-- extracted_text: all visible text"""
-                    },
-                    {
-                        "image": {
-                            "format": local_path.suffix.lstrip('.').lower(),
-                            "source": {
-                                "bytes": image_bytes
-                            }
-                        }
-                    }
-                ]
-            }],
-            "inferenceConfig": {
-                "max_new_tokens": 2048,
-                "temperature": 0.7
-            }
-        }
-        
-        logger.info("Calling Bedrock Nova Vision API...")
-        response = bedrock_runtime.converse(
-            modelId="us.amazon.nova-pro-v1:0",
-            messages=request_body["messages"],
-            inferenceConfig=request_body["inferenceConfig"]
+- components
+- design_patterns
+- technologies
+- security
+- scalability
+- reliability"""
+        # Create a simple agent to use document_reader tool
+        logger.info("Creating analysis agent with document_reader tool...")
+        analysis_agent = Agent(
+            model="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+            tools=[document_reader_tool,image_reader, use_aws],
+            system_prompt="You are an HLD document analyzer. Use the document_reader tool to analyze documents from S3."
         )
-        
-        # Extract response text
-        analysis_text = response['output']['message']['content'][0]['text']
-        logger.info(f"Analysis received, length: {len(analysis_text)}")
-        
-        # Try to parse as JSON, fallback to raw text
+        # Call the agent with the analysis request
+        logger.info(f"Calling agent to analyze {s3_uri}...")
+        agent_query = f"Use the document_reader tool to analyze the document at {s3_uri}. {analysis_prompt}"
+        response = analysis_agent(agent_query)
+        # Extract the analysis result
+        analysis_result = response.message['content'][0]['text']
+        logger.info(f"✓ Analysis completed, length: {len(analysis_result)}")
+        # Parse the result
         try:
-            analysis_json = json.loads(analysis_text)
+            analysis_json = json.loads(analysis_result)
         except json.JSONDecodeError:
             # If not valid JSON, wrap it
             analysis_json = {
-                "raw_analysis": analysis_text,
+                "raw_analysis": analysis_result,
                 "note": "Analysis not in JSON format"
             }
-        
         # Store in memory
-        memory_id = f"doc_{uuid4().hex[:8]}"
+        memory_id = f"hld_{uuid4().hex[:8]}"
         agentcore_memory[memory_id] = {
             "doc_id": memory_id,
             "s3_bucket": bucket,
@@ -195,33 +281,24 @@ Provide the analysis in JSON format with keys:
             "analysis": analysis_json
         }
         logger.info(f"Stored analysis in memory as {memory_id}")
-        
-        # Cleanup
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        
         result = {
             "status": "success",
             "filename": filename,
             "bucket": bucket,
+            "s3_uri": s3_uri,
             "memory_id": memory_id,
             "analysis": analysis_json
         }
-        
         return json.dumps(result, indent=2)
-        
-    except s3_client.exceptions.NoSuchKey:
-        error_result = {
-            "status": "error",
-            "message": f"File '{filename}' not found in bucket '{bucket}'"
-        }
-        return json.dumps(error_result)
     except Exception as e:
-        logger.exception(f"Error processing {filename}")
+        logger.exception(f"✗ Error processing {filename}")
         error_result = {
             "status": "error",
-            "message": f"Error processing file: {str(e)}"
+            "message": f"Error processing file: {str(e)}",
+            "error_type": type(e).__name__,
+            "s3_uri": s3_uri
         }
-        return json.dumps(error_result)
+        return json.dumps(error_result, indent=2)
 
 
 
@@ -249,7 +326,7 @@ def arch_diag_assistant(payload):
         # Create an agent with these tools
         agent = Agent(
             model="us.amazon.nova-pro-v1:0",
-            tools=tools,
+            tools=tools+[generate_image, image_reader, use_aws],
             system_prompt="""You are a Senior AWS Solutions Architect specializing in architecture diagrams.
             Your role is to create professional, well-structured AWS architecture diagrams that follow best practices.
 
@@ -370,21 +447,52 @@ def aws_docs_assistant(payload):
         return response.message['content'][0]['text']
 
 
-migration_system_prompt = """You are an AWS Migration Specialist.
-Help users plan and execute migrations from on-premises to AWS cloud.
-Your responsibilities:
-- Assess on-premises workloads and recommend AWS migration strategies
-- Identify suitable AWS services for migrated workloads
-- Provide best practices for migration planning and execution
-- Address common migration challenges and solutions
-When assisting with migrations: 
-- Analyze on-premises architecture and dependencies 
-- Recommend AWS services that align with workload requirements
-- Suggest migration tools and methodologies (lift-and-shift, re-platforming, refactoring)
-- Provide cost estimates and optimization strategies for cloud deployments
-- Ensure security and compliance considerations are addressed
-- Offer practical, actionable advice tailored to the user's environment
-- Keep responses clear and concise for users new to cloud migrations
+migration_system_prompt = """You are an AWS Migration Specialist with diagram analysis capabilities.
+
+🚨 TOOL USAGE PROTOCOL 🚨
+When user mentions a file (appa.jpeg, diagram.png, etc):
+1. MUST call: input_agent("filename")
+2. If tool returns error → MUST show user the EXACT error JSON
+3. If tool succeeds → Parse JSON and recommend services
+
+CRITICAL: You MUST show tool errors to the user. Do NOT hide them with apologies.
+
+EXAMPLE 1 - Tool Error (CORRECT):
+User: "Recommend services for appa.jpeg"
+You: [Call input_agent("appa.jpeg")]
+Tool returns: {"status": "error", "message": "Bedrock API error: AccessDeniedException"}
+You: "I called input_agent to analyze appa.jpeg but received an error:
+```json
+{
+  \"status\": \"error\",
+  \"message\": \"Bedrock API error: AccessDeniedException\"
+}
+```
+This indicates a permissions issue with the Bedrock service. Please check IAM permissions."
+
+EXAMPLE 2 - Tool Success (CORRECT):
+User: "Recommend services for appa.jpeg"
+You: [Call input_agent("appa.jpeg")]
+Tool returns: {"status": "success", "analysis": {"components": ["web server", "database"]}}
+You: "I analyzed appa.jpeg and found: web servers and databases. I recommend:
+1. Amazon EC2 or ECS for web servers
+2. Amazon RDS for databases"
+
+EXAMPLE 3 - WRONG (Do NOT do this):
+User: "Recommend services for appa.jpeg"
+You: "I apologize for the technical error..." ❌ WRONG! You must show the actual error!
+
+YOUR TOOLS:
+- input_agent(query: str) → Analyzes S3 diagrams from 'innovathon-poc-docs-anz'
+- cost_assistant(payload: str) → AWS pricing
+- aws_docs_assistant(payload: str) → AWS docs
+- arch_diag_assistant(payload: str) → Creates diagrams
+
+RULES:
+1. File mentioned → Call input_agent()
+2. Tool returns error → Show EXACT error JSON to user
+3. Tool returns success → Parse and recommend
+4. NEVER say "technical error" without showing the actual error
 """
 
 migration_agent = Agent(
@@ -392,10 +500,13 @@ migration_agent = Agent(
     system_prompt=migration_system_prompt,
     hooks=[session_memory_provider],  # Pass hook provider directly as a list
     tools=[
-        input_agent,
+        read_hld_agent,
         cost_assistant,
         aws_docs_assistant,
-        arch_diag_assistant,],
+        arch_diag_assistant,
+        generate_image,
+        image_reader,
+        use_aws],
 )
 
 @app.entrypoint
@@ -415,6 +526,14 @@ def migration_assistant(payload):
     print(f"User ID: {user_id}")
     print(f"Session ID: {session_id}")
     print(f"Input: {user_input}")
+    
+    # Check if user mentioned a file and log a reminder
+    import re
+    file_pattern = r'\w+\.(jpeg|jpg|png|pdf|gif)'
+    if re.search(file_pattern, user_input, re.IGNORECASE):
+        detected_files = re.findall(file_pattern, user_input, re.IGNORECASE)
+        print(f"⚠️ FILE DETECTED: {detected_files} - Agent MUST call input_agent tool!")
+        print(f"⚠️ Reminder: The agent should call input_agent() for these files!")
     
     # Retrieve conversation history from memory
     try:
