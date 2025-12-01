@@ -1,8 +1,13 @@
 import base64
-import threading
+import boto3
+import json
+import logging
+import tempfile
+import shutil
 import time
 from datetime import timedelta
 from pathlib import Path
+from typing import Dict, List, Any
 from uuid import uuid4
 from mcp import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamablehttp_client
@@ -13,7 +18,14 @@ from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from strands.hooks import AgentInitializedEvent, HookProvider, MessageAddedEvent
 from bedrock_agentcore.memory import MemoryClient
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 app = BedrockAgentCoreApp()
+
+# In-memory storage for processed documents
+agentcore_memory: Dict[str, Dict[str, Any]] = {}
 
 # Initialize memory client for session management
 memory_client = MemoryClient()
@@ -55,6 +67,161 @@ class SessionMemoryHookProvider(HookProvider):
 # Create session memory provider (no registry needed - pass directly to Agent)
 session_memory_provider = SessionMemoryHookProvider(memory_client)
 
+
+@tool
+def input_agent(query: str) -> str:
+    """
+    Analyzes architecture diagrams from S3 bucket 'innovathon-poc-docs-anz'.
+    
+    This tool processes HLD/LLD diagrams using AWS Nova Vision multimodal model:
+    - Extracts text and architecture components from images
+    - Analyzes relationships, services, and design patterns
+    - Returns structured analysis as JSON
+    
+    Args:
+        query: Filename in the S3 bucket (e.g., 'architecture.png' or 'analyze diagram.png')
+    
+    Returns:
+        JSON string with extracted architecture information
+    
+    Example:
+        "Analyze the file architecture-v2.png from the bucket"
+    """
+    logger.info(f"input_agent called with query: {query}")
+    
+    # Default S3 bucket
+    bucket = "innovathon-poc-docs-anz"
+    
+    # Extract filename from query (simple pattern matching)
+    # Look for common image extensions
+    import re
+    filename_match = re.search(r'([\w\-\.]+\.(?:png|jpg|jpeg|pdf|gif))', query, re.IGNORECASE)
+    
+    if not filename_match:
+        return json.dumps({
+            "status": "error",
+            "message": f"Could not extract filename from query. Please specify a file like 'architecture.png'. Query: {query}"
+        })
+    
+    filename = filename_match.group(1)
+    logger.info(f"Extracted filename: {filename}")
+    
+    try:
+        s3_client = boto3.client("s3")
+        
+        # Download image from S3
+        temp_dir = Path(tempfile.mkdtemp(prefix="arch_analysis_"))
+        local_path = temp_dir / filename
+        
+        logger.info(f"Downloading s3://{bucket}/{filename}")
+        s3_client.download_file(bucket, filename, str(local_path))
+        logger.info(f"Downloaded to {local_path}")
+        
+        # Read and encode image
+        with open(local_path, "rb") as f:
+            image_bytes = f.read()
+        
+        # Use Nova Vision with proper multimodal input format
+        import boto3
+        bedrock_runtime = boto3.client('bedrock-runtime', region_name='us-east-1')
+        
+        # Nova Vision expects multimodal content
+        request_body = {
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {
+                        "text": """Analyze this architecture diagram comprehensively. Extract:
+1. All visible text and labels
+2. System components and their relationships
+3. Data flows and integrations
+4. Infrastructure elements (servers, databases, networks)
+5. Security components
+6. Technology stack
+
+Provide the analysis in JSON format with keys:
+- components: list of all components
+- data_flows: list of data movement patterns
+- integrations: external systems
+- infrastructure: servers, databases, networks
+- technologies: identified tech stack
+- architecture_pattern: detected pattern (microservices, monolith, etc.)
+- extracted_text: all visible text"""
+                    },
+                    {
+                        "image": {
+                            "format": local_path.suffix.lstrip('.').lower(),
+                            "source": {
+                                "bytes": image_bytes
+                            }
+                        }
+                    }
+                ]
+            }],
+            "inferenceConfig": {
+                "max_new_tokens": 2048,
+                "temperature": 0.7
+            }
+        }
+        
+        logger.info("Calling Bedrock Nova Vision API...")
+        response = bedrock_runtime.converse(
+            modelId="us.amazon.nova-pro-v1:0",
+            messages=request_body["messages"],
+            inferenceConfig=request_body["inferenceConfig"]
+        )
+        
+        # Extract response text
+        analysis_text = response['output']['message']['content'][0]['text']
+        logger.info(f"Analysis received, length: {len(analysis_text)}")
+        
+        # Try to parse as JSON, fallback to raw text
+        try:
+            analysis_json = json.loads(analysis_text)
+        except json.JSONDecodeError:
+            # If not valid JSON, wrap it
+            analysis_json = {
+                "raw_analysis": analysis_text,
+                "note": "Analysis not in JSON format"
+            }
+        
+        # Store in memory
+        memory_id = f"doc_{uuid4().hex[:8]}"
+        agentcore_memory[memory_id] = {
+            "doc_id": memory_id,
+            "s3_bucket": bucket,
+            "s3_key": filename,
+            "timestamp": time.time(),
+            "analysis": analysis_json
+        }
+        logger.info(f"Stored analysis in memory as {memory_id}")
+        
+        # Cleanup
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        
+        result = {
+            "status": "success",
+            "filename": filename,
+            "bucket": bucket,
+            "memory_id": memory_id,
+            "analysis": analysis_json
+        }
+        
+        return json.dumps(result, indent=2)
+        
+    except s3_client.exceptions.NoSuchKey:
+        error_result = {
+            "status": "error",
+            "message": f"File '{filename}' not found in bucket '{bucket}'"
+        }
+        return json.dumps(error_result)
+    except Exception as e:
+        logger.exception(f"Error processing {filename}")
+        error_result = {
+            "status": "error",
+            "message": f"Error processing file: {str(e)}"
+        }
+        return json.dumps(error_result)
 
 
 
@@ -225,6 +392,7 @@ migration_agent = Agent(
     system_prompt=migration_system_prompt,
     hooks=[session_memory_provider],  # Pass hook provider directly as a list
     tools=[
+        input_agent,
         cost_assistant,
         aws_docs_assistant,
         arch_diag_assistant,],
