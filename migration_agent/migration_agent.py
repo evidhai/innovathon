@@ -10,7 +10,10 @@ from mcp.server import FastMCP
 from strands import Agent, tool
 from strands.tools.mcp import MCPClient
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
+from strands.hooks import AgentInitializedEvent, HookProvider, HookRegistry, MessageAddedEvent
+from bedrock_agentcore.memory import MemoryClient
 app = BedrockAgentCoreApp()
+
 
 
 
