@@ -10,9 +10,50 @@ from mcp.server import FastMCP
 from strands import Agent, tool
 from strands.tools.mcp import MCPClient
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
-from strands.hooks import AgentInitializedEvent, HookProvider, HookRegistry, MessageAddedEvent
+from strands.hooks import AgentInitializedEvent, HookProvider, MessageAddedEvent
 from bedrock_agentcore.memory import MemoryClient
+
 app = BedrockAgentCoreApp()
+
+# Initialize memory client for session management
+memory_client = MemoryClient()
+
+# Create a custom hook provider for session memory
+class SessionMemoryHookProvider(HookProvider):
+    """Hook provider for session-based memory using Agent Core Memory"""
+    
+    def __init__(self, memory_client: MemoryClient):
+        self.memory_client = memory_client
+        self.session_id = None
+    
+    def on_agent_initialized(self, event: AgentInitializedEvent):
+        """Initialize session when agent starts"""
+        print("🧠 Initializing session memory...")
+    
+    def on_message_added(self, event: MessageAddedEvent):
+        """Store messages in session memory"""
+        if self.session_id:
+            try:
+                # Store the message in session memory
+                message_content = str(event.message.get('content', ''))
+                role = event.message.get('role', 'user')
+                
+                # Add to memory with session context
+                self.memory_client.add_memory(
+                    session_id=self.session_id,
+                    memory_type="short_term",
+                    content={
+                        "role": role,
+                        "content": message_content,
+                        "timestamp": time.time()
+                    }
+                )
+                print(f"💾 Stored {role} message in session memory")
+            except Exception as e:
+                print(f"⚠️ Failed to store message in memory: {e}")
+
+# Create session memory provider (no registry needed - pass directly to Agent)
+session_memory_provider = SessionMemoryHookProvider(memory_client)
 
 
 
@@ -182,6 +223,7 @@ When assisting with migrations:
 migration_agent = Agent(
     model="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
     system_prompt=migration_system_prompt,
+    hooks=[session_memory_provider],  # Pass hook provider directly as a list
     tools=[
         cost_assistant,
         aws_docs_assistant,
@@ -197,15 +239,40 @@ def migration_assistant(payload):
     user_input = payload.get("input") or payload.get("prompt")
     user_id = payload.get("user_id", "unknown")
     context = payload.get("context", {})
-    print(f"User ID: {user_id}")
-    print(f"Input: {user_input}")
-    if context:
-        print(f"Context: {context}")
     
-        # Process the query
-    response = migration_agent(user_input)
+    # Create or retrieve session ID
+    session_id = context.get("session_id") or f"session_{user_id}_{int(time.time())}"
+    session_memory_provider.session_id = session_id
+    
+    print(f"User ID: {user_id}")
+    print(f"Session ID: {session_id}")
+    print(f"Input: {user_input}")
+    
+    # Retrieve conversation history from memory
+    try:
+        conversation_history = memory_client.get_memories(
+            session_id=session_id,
+            memory_type="short_term",
+            limit=10  # Last 10 messages
+        )
         
-        # Return structured response
+        if conversation_history:
+            print(f"📚 Retrieved {len(conversation_history)} previous messages from session")
+            # Add context to the agent about previous conversation
+            history_context = "\n\nPrevious conversation context:\n"
+            for mem in conversation_history[-5:]:  # Last 5 for context
+                content = mem.get('content', {})
+                history_context += f"{content.get('role', 'user')}: {content.get('content', '')[:100]}...\n"
+            
+            # Prepend history to user input
+            user_input = history_context + "\n\nCurrent query: " + user_input
+    except Exception as e:
+        print(f"⚠️ Could not retrieve session history: {e}")
+    
+    # Process the query
+    response = migration_agent(user_input)
+    
+    # Return structured response
     return response.message['content'][0]['text']
 
 if __name__ == "__main__":
