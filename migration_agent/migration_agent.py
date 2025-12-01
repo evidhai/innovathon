@@ -10,6 +10,7 @@ from mcp.server import FastMCP
 from strands import Agent, tool
 from strands.tools.mcp import MCPClient
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
+from strands_tools import diagram
 app = BedrockAgentCoreApp()
 
 
@@ -38,28 +39,54 @@ def arch_diag_assistant(payload):
         # Create an agent with these tools
         agent = Agent(
             model="us.amazon.nova-pro-v1:0",
-            tools=tools,
+            tools=tools + [diagram],
             system_prompt="""You are a Senior AWS Solutions Architect specializing in architecture diagrams.
             Your role is to create professional, well-structured AWS architecture diagrams that follow best practices.
 
+            When using the AWS diagram tools:
+            - ALWAYS provide the 'nodes' parameter as a list of AWS service nodes
+            - Each node should have: id, type (AWS service), label, and position (x, y coordinates)
+            - Do NOT include import statements in the diagram code
+            - Use the create_basic_diagram or create_advanced_diagram tools
+            - Structure: {"nodes": [...], "edges": [...], "groups": [...]}
+            
             When designing architectures:
-            - Use the AWS diagram tools to create clear, professional architecture diagrams
-            - Follow AWS Well-Architected Framework principles (security, reliability, performance, cost optimization, operational excellence)
+            - Follow AWS Well-Architected Framework principles
             - Include appropriate AWS services for high availability, scalability, and fault tolerance
-            - Organize components into logical layers (presentation, application, data, etc.)
-            - Show VPC boundaries, availability zones, and security groups where relevant
-            - Include proper networking components (load balancers, NAT gateways, VPC endpoints)
+            - Organize components into logical layers (presentation, application, data)
+            - Show VPC boundaries, availability zones, and security groups
+            - Include networking components (load balancers, NAT gateways, VPC endpoints)
             - Add monitoring and logging services (CloudWatch, CloudTrail)
             - Consider security best practices (IAM, encryption, least privilege)
-            - Use industry-standard naming conventions and clear labels
+            - Use clear labels and proper AWS service icons
             - Provide brief explanations for key architectural decisions
 
-            Generate production-ready, enterprise-grade architecture diagrams that demonstrate deep AWS expertise.
+            Generate production-ready, enterprise-grade architecture diagrams.
             """)
         print("Agent initialized successfully!")
         # Invoke the agent with the provided payload
         response = agent(payload)
-        return response.message['content'][0]['text']   
+        # Check if response contains diagram data
+        content = response.message['content'][0]
+        
+        # If it's a diagram (base64 encoded image), decode and return as PNG
+        if 'image' in content:
+            image_data = content['image']
+            # Decode base64 image data
+            png_data = base64.b64decode(image_data)
+            
+            # Save to file with unique name
+            output_path = Path(f"/tmp/diagram_{uuid4()}.png")
+            output_path.write_bytes(png_data)
+            
+            return {
+            "type": "image",
+            "path": str(output_path),
+            "data": image_data
+            }
+        
+        # Otherwise return text response
+        return content.get('text', str(content))
 
 @tool
 def cost_assistant(payload):
