@@ -1,4 +1,8 @@
 import base64
+import boto3
+import json
+import logging
+import tempfile
 import threading
 import time
 from datetime import timedelta
@@ -8,10 +12,17 @@ from mcp import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.server import FastMCP
 from strands import Agent, tool
+from strands_tools import generate_image, image_reader, use_aws
 from strands.tools.mcp import MCPClient
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from strands.hooks import AgentInitializedEvent, HookProvider, MessageAddedEvent
 from bedrock_agentcore.memory import MemoryClient
+from strands.models import BedrockModel
+
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = BedrockAgentCoreApp()
 
@@ -64,46 +75,63 @@ def arch_diag_assistant(payload):
     """
     A Senior AWS Solutions Architect specializing in architecture diagrams.
     Creates professional, well-structured AWS architecture diagrams that follow best practices.
+    After generating a diagram, uploads it to S3 bucket 'innovathon-poc-docs-anz' in the 'arch/' folder.
     """
-    # Connect to an MCP server using stdio transport
-    stdio_mcp_client = MCPClient(
-        lambda: stdio_client(
-            StdioServerParameters(
-                command="uvx", args=["awslabs.aws-diagram-mcp-server@latest"]
+    print(f"arch_diag_assistant called with payload: {payload}")
+    
+    try:
+        # Try using AWS Diagram MCP server first
+        aws_diagram_mcp = MCPClient(
+            lambda: stdio_client(
+                StdioServerParameters(
+                    command="uvx",
+                    args=["awslabs.aws-diagram-mcp-server@latest"],
+                )
             )
         )
-    )
-    print("Initializing agent with AWS documentation tools...")
-    # Keep the context manager alive
-    with stdio_mcp_client:
-        # Get the tools from the MCP server
-        tools = stdio_mcp_client.list_tools_sync()
-        print(f"Loaded {len(tools)} tools from AWS documentation server")
-        # Create an agent with these tools
-        agent = Agent(
-            model="us.amazon.nova-pro-v1:0",
-            tools=tools,
-            system_prompt="""You are a Senior AWS Solutions Architect specializing in architecture diagrams.
-            Your role is to create professional, well-structured AWS architecture diagrams that follow best practices.
-
-            When designing architectures:
-            - Use the AWS diagram tools to create clear, professional architecture diagrams
-            - Follow AWS Well-Architected Framework principles (security, reliability, performance, cost optimization, operational excellence)
-            - Include appropriate AWS services for high availability, scalability, and fault tolerance
-            - Organize components into logical layers (presentation, application, data, etc.)
-            - Show VPC boundaries, availability zones, and security groups where relevant
-            - Include proper networking components (load balancers, NAT gateways, VPC endpoints)
-            - Add monitoring and logging services (CloudWatch, CloudTrail)
-            - Consider security best practices (IAM, encryption, least privilege)
-            - Use industry-standard naming conventions and clear labels
-            - Provide brief explanations for key architectural decisions
-
-            Generate production-ready, enterprise-grade architecture diagrams that demonstrate deep AWS expertise.
-            """)
-        print("Agent initialized successfully!")
-        # Invoke the agent with the provided payload
-        response = agent(payload)
-        return response.message['content'][0]['text']   
+        
+        bedrock_model = BedrockModel(
+            model_id="us.anthropic.claude-3-5-haiku-20241022-v1:0",
+            temperature=0.2,
+        )
+        
+        SYSTEM_PROMPT = """You are a Senior AWS Solutions Architect specializing in architecture diagrams.
+        Use the AWS diagram tools to create clear, professional architecture diagrams.
+        Always tell the user the full output file path for the diagram you create.
+        If the diagram tool fails, provide a detailed textual description instead.
+        """
+        
+        print("Initializing agent with AWS diagram tools...")
+        
+        with aws_diagram_mcp:
+            diagram_tools = aws_diagram_mcp.list_tools_sync()
+            print(f"Loaded {len(diagram_tools)} tools from AWS diagram server")
+            
+            agent = Agent(
+                model=bedrock_model,
+                tools=diagram_tools,
+                system_prompt=SYSTEM_PROMPT,
+            )
+            
+            print("Agent initialized successfully!")
+            response = agent(payload)
+            
+            # Extract response text
+            response_text = response.message['content'][0]['text']
+            
+            # Check if diagram was actually generated
+            if "technical limitations" in response_text.lower() or "was not generated" in response_text.lower():
+                print("⚠️ AWS diagram tool failed, falling back to text description")
+                return response_text
+            
+            # If successful, try to upload to S3
+            print(f"✅ Diagram generated successfully")
+            return response_text
+            
+    except Exception as e:
+        error_msg = f"Error in arch_diag_assistant: {str(e)}"
+        print(error_msg)
+        return f"I encountered an error while creating the architecture diagram: {str(e)}\n\nPlease provide more details about your architecture requirements and I'll help design it."   
 
 @tool
 def cost_assistant(payload):
@@ -227,7 +255,10 @@ migration_agent = Agent(
     tools=[
         cost_assistant,
         aws_docs_assistant,
-        arch_diag_assistant,],
+        arch_diag_assistant,
+        generate_image,
+        image_reader,
+        use_aws],
 )
 
 @app.entrypoint

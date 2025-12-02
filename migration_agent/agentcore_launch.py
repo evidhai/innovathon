@@ -2,7 +2,7 @@ import boto3
 import json
 
 client = boto3.client('bedrock-agentcore', region_name='us-east-1')
-payload = json.dumps({"prompt": "what was my last query?"})
+payload = json.dumps({"prompt": "Create an AWS architecture diagram for a 3-tier web app: CloudFront -> ALB -> EC2 ASG -> RDS in private subnets, with VPC, subnets, IGW, NAT GW, and security group as png"})
 
 response = client.invoke_agent_runtime(
     agentRuntimeArn='arn:aws:bedrock-agentcore:us-east-1:095059577505:runtime/migration_agent-yss0vU3nxI',
