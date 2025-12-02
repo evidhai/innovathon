@@ -2,11 +2,11 @@ import boto3
 import json
 
 client = boto3.client('bedrock-agentcore', region_name='us-east-1')
-payload = json.dumps({"prompt": "what was my last query?"})
+payload = json.dumps({"prompt": "Analyse appa.jpeg on  S3 bucket innovathon-poc-docs-anz and provide me architecture strategy for cloud migration"})
 
 response = client.invoke_agent_runtime(
     agentRuntimeArn='arn:aws:bedrock-agentcore:us-east-1:095059577505:runtime/migration_agent-yss0vU3nxI',
-    runtimeSessionId='dfmeoagmreaklgmrkleafremoigrmtesogmtrskhmtkrlshmt',  # Must be 33+ chars
+    runtimeSessionId='dfmeoagmreaklgmrkleafremoigrmtesogmtrskhmtkrlshmio',  # Must be 33+ chars
     payload=payload,
     qualifier="DEFAULT" # Optional
 )
