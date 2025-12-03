@@ -21,8 +21,4 @@ response = agentcore_runtime.configure(
 print("Launching Bedrock AgentCore runtime...")
 launch_result = agentcore_runtime.launch()
 
-print(f"\n✅ Agent '{agent_name}' deployed successfully!")
-print(f"Runtime ARN: {launch_result.runtime_arn}")
-print(f"\nUpdate diag_launch.py with this ARN:")
-print(f"agentRuntimeArn='{launch_result.runtime_arn}'")
 

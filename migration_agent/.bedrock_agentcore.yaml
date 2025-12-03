@@ -1,4 +1,4 @@
-default_agent: diagram_agent
+default_agent: migration_agent
 agents:
   migration_agent:
     name: migration_agent

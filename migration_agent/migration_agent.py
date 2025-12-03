@@ -12,12 +12,13 @@ from mcp import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.server import FastMCP
 from strands import Agent, tool
-from strands_tools import generate_image, image_reader, use_aws
+from strands_tools import image_reader, use_aws
 from strands.tools.mcp import MCPClient
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from strands.hooks import AgentInitializedEvent, HookProvider, MessageAddedEvent
 from bedrock_agentcore.memory import MemoryClient
 from strands.models import BedrockModel
+import jschema_to_python
 
 
 # Configure logging
@@ -66,72 +67,162 @@ class SessionMemoryHookProvider(HookProvider):
 # Create session memory provider (no registry needed - pass directly to Agent)
 session_memory_provider = SessionMemoryHookProvider(memory_client)
 
-
-
-
+# Directory for storing generated diagrams
+DIAGRAM_OUTPUT_DIR = Path("generated-diagrams")
+DIAGRAM_OUTPUT_DIR.mkdir(exist_ok=True)
 
 @tool
 def arch_diag_assistant(payload):
     """
     A Senior AWS Solutions Architect specializing in architecture diagrams.
-    Creates professional, well-structured AWS architecture diagrams that follow best practices.
-    After generating a diagram, uploads it to S3 bucket 'innovathon-poc-docs-anz' in the 'arch/' folder.
+    Creates PNG architecture diagrams using AWS Diagram MCP server and optionally 
+    generates visual diagrams using Amazon Titan Image Generator.
     """
     print(f"arch_diag_assistant called with payload: {payload}")
     
-    try:
-        # Try using AWS Diagram MCP server first
-        aws_diagram_mcp = MCPClient(
-            lambda: stdio_client(
-                StdioServerParameters(
-                    command="uvx",
-                    args=["awslabs.aws-diagram-mcp-server@latest"],
+    # Connect to AWS Diagram MCP server with required dependencies
+    diagram_mcp_client = MCPClient(
+        lambda: stdio_client(
+            StdioServerParameters(
+                command="uvx",
+                args=[
+                    "--with", "jschema-to-python",
+                    "awslabs.aws-diagram-mcp-server@latest"
+                ]
+            )
+        )
+    )
+    
+    print("Initializing architecture diagram agent with AWS diagram tools...")
+    
+    # Keep the context manager alive
+    with diagram_mcp_client:
+        # Get the tools from the MCP server
+        diagram_tools = diagram_mcp_client.list_tools_sync()
+        print(f"Loaded {len(diagram_tools)} diagram tools from AWS diagram server")
+        
+        # Create an agent with diagram tools using Claude (NOT Titan - Titan can't use tools)
+        # Titan will be used separately for visual enhancement if needed
+        bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1')
+        
+        agent = Agent(
+            model="us.anthropic.claude-3-7-sonnet-20250219-v1:0",  # Claude can use tools
+            tools=diagram_tools,
+            system_prompt="""You are a Senior AWS Solutions Architect specializing in architecture diagrams.
+            Your role is to create professional, well-structured AWS architecture diagrams that follow best practices.
+            
+            When designing architectures:
+            - Use the generate_diagram tool to create clear, professional architecture diagrams in PNG format
+            - Follow AWS Well-Architected Framework principles
+            - Include appropriate AWS services for high availability, scalability, and fault tolerance
+            - Organize components into logical layers (presentation, application, data, etc.)
+            - Show VPC boundaries, availability zones, and security groups where relevant
+            - Include proper networking components (load balancers, NAT gateways, VPC endpoints)
+            - Add monitoring and logging services (CloudWatch, CloudTrail)
+            - Consider security best practices (IAM, encryption, least privilege)
+            - Use industry-standard naming conventions and clear labels
+            - Always generate diagrams as PNG files
+            
+           
+            Generate production-ready, enterprise-grade architecture diagrams that demonstrate deep AWS expertise.
+            """)
+        
+        print("Agent initialized successfully!")
+        
+        # Process the query with the diagram agent
+        response = agent(payload)
+        
+        # Extract text and any image payloads returned by the MCP tools
+        text_parts = []
+        saved_images = []
+        diagram_description = ""
+        
+        for part in response.message.get("content", []):
+            if part.get("type") == "text" and "text" in part:
+                text_content = part["text"]
+                text_parts.append(text_content)
+                diagram_description = text_content  # Save for Titan image generation
+                continue
+            
+            # Handle base64-encoded image parts from tools/models
+            b64_data = part.get("data") or part.get("base64_data") or part.get("base64")
+            if b64_data:
+                try:
+                    image_bytes = base64.b64decode(b64_data)
+                    ext = (part.get("format") or "png").replace(".", "")
+                    filename = (
+                        DIAGRAM_OUTPUT_DIR
+                        / f"diagram_{uuid4().hex[:8]}_{int(time.time())}.{ext}"
+                    )
+                    with open(filename, "wb") as f:
+                        f.write(image_bytes)
+                    saved_images.append(str(filename))
+                    print(f"✅ Saved diagram to {filename}")
+                except Exception as e:
+                    text_parts.append(f"[Warning] Failed to decode image payload: {e}")
+        
+        # Optionally generate additional diagram using Titan Image Generator
+        # This creates a visual representation based on the architecture description
+        if diagram_description and "diagram" in payload.lower():
+            try:
+                print("Generating visual diagram with Amazon Titan Image Generator...")
+                
+                # Create a prompt for Titan Image Generator
+                titan_prompt = f"Professional AWS architecture diagram showing: {diagram_description[:500]}"
+                
+                titan_request = {
+                    "taskType": "TEXT_IMAGE",
+                    "textToImageParams": {
+                        "text": titan_prompt,
+                        "negativeText": "blurry, low quality, distorted, text overlay"
+                    },
+                    "imageGenerationConfig": {
+                        "numberOfImages": 1,
+                        "quality": "premium",
+                        "height": 1024,
+                        "width": 1024,
+                        "cfgScale": 8.0,
+                        "seed": int(time.time()) % 2147483647
+                    }
+                }
+                
+                titan_response = bedrock_client.invoke_model(
+                    modelId="amazon.titan-image-generator-v1",
+                    body=json.dumps(titan_request)
                 )
-            )
-        )
+                
+                titan_response_body = json.loads(titan_response['body'].read())
+                
+                if titan_response_body.get('images'):
+                    titan_image_b64 = titan_response_body['images'][0]
+                    titan_image_bytes = base64.b64decode(titan_image_b64)
+                    
+                    titan_filename = (
+                        DIAGRAM_OUTPUT_DIR
+                        / f"titan_diagram_{uuid4().hex[:8]}_{int(time.time())}.png"
+                    )
+                    
+                    with open(titan_filename, "wb") as f:
+                        f.write(titan_image_bytes)
+                    
+                    saved_images.append(str(titan_filename))
+                    print(f"✅ Saved Titan-generated diagram to {titan_filename}")
+                    text_parts.append(f"\n\n🎨 Generated visual diagram using Amazon Titan Image Generator")
+                    
+            except Exception as e:
+                print(f"⚠️ Titan image generation failed: {e}")
+                text_parts.append(f"\n\nNote: Visual diagram generation with Titan was attempted but encountered an issue.")
         
-        bedrock_model = BedrockModel(
-            model_id="us.anthropic.claude-3-5-haiku-20241022-v1:0",
-            temperature=0.2,
-        )
+        # Fallback if no structured text was returned
+        if not text_parts and isinstance(response.message, dict):
+            fallback = response.message.get("content") or response.message
+            text_parts.append(str(fallback))
         
-        SYSTEM_PROMPT = """You are a Senior AWS Solutions Architect specializing in architecture diagrams.
-        Use the AWS diagram tools to create clear, professional architecture diagrams.
-        Always tell the user the full output file path for the diagram you create.
-        If the diagram tool fails, provide a detailed textual description instead.
-        """
+        result = "\n\n".join(text_parts).strip()
+        if saved_images:
+            result = f"{result}\n\n📁 Saved diagram files:\n" + "\n".join(f"  - {img}" for img in saved_images)
         
-        print("Initializing agent with AWS diagram tools...")
-        
-        with aws_diagram_mcp:
-            diagram_tools = aws_diagram_mcp.list_tools_sync()
-            print(f"Loaded {len(diagram_tools)} tools from AWS diagram server")
-            
-            agent = Agent(
-                model=bedrock_model,
-                tools=diagram_tools,
-                system_prompt=SYSTEM_PROMPT,
-            )
-            
-            print("Agent initialized successfully!")
-            response = agent(payload)
-            
-            # Extract response text
-            response_text = response.message['content'][0]['text']
-            
-            # Check if diagram was actually generated
-            if "technical limitations" in response_text.lower() or "was not generated" in response_text.lower():
-                print("⚠️ AWS diagram tool failed, falling back to text description")
-                return response_text
-            
-            # If successful, try to upload to S3
-            print(f"✅ Diagram generated successfully")
-            return response_text
-            
-    except Exception as e:
-        error_msg = f"Error in arch_diag_assistant: {str(e)}"
-        print(error_msg)
-        return f"I encountered an error while creating the architecture diagram: {str(e)}\n\nPlease provide more details about your architecture requirements and I'll help design it."   
+        return result   
 
 @tool
 def cost_assistant(payload):
@@ -256,7 +347,6 @@ migration_agent = Agent(
         cost_assistant,
         aws_docs_assistant,
         arch_diag_assistant,
-        generate_image,
         image_reader,
         use_aws],
 )
@@ -267,9 +357,15 @@ def migration_assistant(payload):
     An AWS Migration Specialist that helps users plan and execute migrations from on-premises to AWS cloud.
     """
     # Invoke the migration agent with the provided payload
-    user_input = payload.get("input") or payload.get("prompt")
-    user_id = payload.get("user_id", "unknown")
-    context = payload.get("context", {})
+    # Handle both dict and string inputs
+    if isinstance(payload, str):
+        user_input = payload
+        user_id = "unknown"
+        context = {}
+    else:
+        user_input = payload.get("input") or payload.get("prompt")
+        user_id = payload.get("user_id", "unknown")
+        context = payload.get("context", {})
     
     # Create or retrieve session ID
     session_id = context.get("session_id") or f"session_{user_id}_{int(time.time())}"
@@ -279,26 +375,9 @@ def migration_assistant(payload):
     print(f"Session ID: {session_id}")
     print(f"Input: {user_input}")
     
-    # Retrieve conversation history from memory
-    try:
-        conversation_history = memory_client.get_memories(
-            session_id=session_id,
-            memory_type="short_term",
-            limit=10  # Last 10 messages
-        )
-        
-        if conversation_history:
-            print(f"📚 Retrieved {len(conversation_history)} previous messages from session")
-            # Add context to the agent about previous conversation
-            history_context = "\n\nPrevious conversation context:\n"
-            for mem in conversation_history[-5:]:  # Last 5 for context
-                content = mem.get('content', {})
-                history_context += f"{content.get('role', 'user')}: {content.get('content', '')[:100]}...\n"
-            
-            # Prepend history to user input
-            user_input = history_context + "\n\nCurrent query: " + user_input
-    except Exception as e:
-        print(f"⚠️ Could not retrieve session history: {e}")
+    # Note: Session memory retrieval is handled automatically by the hook provider
+    # The memory_client stores messages via the MessageAddedEvent hook
+    # No need to manually retrieve and prepend history
     
     # Process the query
     response = migration_agent(user_input)

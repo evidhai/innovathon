@@ -38,4 +38,4 @@ COPY . .
 
 # Use the full module path
 
-CMD ["opentelemetry-instrument", "python", "-m", "diag_test"]
+CMD ["opentelemetry-instrument", "python", "-m", "migration_agent"]

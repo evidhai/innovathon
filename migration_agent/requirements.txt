@@ -8,3 +8,4 @@ bedrock-agentcore<=0.1.5
 bedrock-agentcore-starter-toolkit==0.1.14
 opentelemetry-sdk~=1.34.1
 attrs<24.0,>=21.2
+jschema-to-python
