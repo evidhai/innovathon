@@ -6,7 +6,7 @@ boto_session = Session()
 region = boto_session.region_name
 
 agentcore_runtime = Runtime()
-agent_name = "migration_agent"
+agent_name = "migration_agent_test"
 
 ### To Configure the agent runtime - Generate Docker files
 response = agentcore_runtime.configure(

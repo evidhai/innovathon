@@ -176,7 +176,7 @@ When assisting with migrations:
 - Keep responses clear and concise for users new to cloud migrations
 """
 
-migration_agent = Agent(
+migration_agent_test = Agent(
     model="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
     system_prompt=migration_system_prompt,
     tools=[
@@ -200,7 +200,7 @@ def migration_assistant(payload):
         print(f"Context: {context}")
     
         # Process the query
-    response = migration_agent(user_input)
+    response = migration_agent_test(user_input)
         
         # Return structured response
     return response.message['content'][0]['text']
