@@ -67,8 +67,10 @@ class SessionMemoryHookProvider(HookProvider):
 # Create session memory provider (no registry needed - pass directly to Agent)
 session_memory_provider = SessionMemoryHookProvider(memory_client)
 
-# Directory for storing generated diagrams
-DIAGRAM_OUTPUT_DIR = Path("generated-diagrams")
+# Directory for storing generated diagrams - dynamic path based on script location
+import os
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DIAGRAM_OUTPUT_DIR = Path(os.path.join(SCRIPT_DIR, "generated-diagrams"))
 DIAGRAM_OUTPUT_DIR.mkdir(exist_ok=True)
 
 @tool
@@ -79,6 +81,14 @@ def arch_diag_assistant(payload):
     generates visual diagrams using Amazon Titan Image Generator.
     """
     print(f"arch_diag_assistant called with payload: {payload}")
+    print(f"Diagram output directory: {DIAGRAM_OUTPUT_DIR}")
+    
+    # Track existing files before generation
+    import glob
+    tmp_diagram_dir = Path("/tmp/generated-diagrams")
+    existing_files = set()
+    if tmp_diagram_dir.exists():
+        existing_files = set(tmp_diagram_dir.glob("*.png"))
     
     # Connect to AWS Diagram MCP server with required dependencies
     diagram_mcp_client = MCPClient(
@@ -102,7 +112,6 @@ def arch_diag_assistant(payload):
         print(f"Loaded {len(diagram_tools)} diagram tools from AWS diagram server")
         
         # Create an agent with diagram tools using Claude (NOT Titan - Titan can't use tools)
-        # Titan will be used separately for visual enhancement if needed
         bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1')
         
         agent = Agent(
@@ -112,7 +121,7 @@ def arch_diag_assistant(payload):
             Your role is to create professional, well-structured AWS architecture diagrams that follow best practices.
             
             When designing architectures:
-            - Use the generate_diagram tool to create clear, professional architecture diagrams in PNG format
+            - Use the generate_diagram tool ONCE to create a clear, professional architecture diagram in PNG format
             - Follow AWS Well-Architected Framework principles
             - Include appropriate AWS services for high availability, scalability, and fault tolerance
             - Organize components into logical layers (presentation, application, data, etc.)
@@ -121,9 +130,9 @@ def arch_diag_assistant(payload):
             - Add monitoring and logging services (CloudWatch, CloudTrail)
             - Consider security best practices (IAM, encryption, least privilege)
             - Use industry-standard naming conventions and clear labels
-            - Always generate diagrams as PNG files
+            - Generate only ONE diagram per request
             
-           
+            IMPORTANT: Call the generate_diagram tool only once. Do not create multiple versions or iterations.
             Generate production-ready, enterprise-grade architecture diagrams that demonstrate deep AWS expertise.
             """)
         
@@ -135,13 +144,11 @@ def arch_diag_assistant(payload):
         # Extract text and any image payloads returned by the MCP tools
         text_parts = []
         saved_images = []
-        diagram_description = ""
         
         for part in response.message.get("content", []):
             if part.get("type") == "text" and "text" in part:
                 text_content = part["text"]
                 text_parts.append(text_content)
-                diagram_description = text_content  # Save for Titan image generation
                 continue
             
             # Handle base64-encoded image parts from tools/models
@@ -161,57 +168,21 @@ def arch_diag_assistant(payload):
                 except Exception as e:
                     text_parts.append(f"[Warning] Failed to decode image payload: {e}")
         
-        # Optionally generate additional diagram using Titan Image Generator
-        # This creates a visual representation based on the architecture description
-        if diagram_description and "diagram" in payload.lower():
-            try:
-                print("Generating visual diagram with Amazon Titan Image Generator...")
-                
-                # Create a prompt for Titan Image Generator
-                titan_prompt = f"Professional AWS architecture diagram showing: {diagram_description[:500]}"
-                
-                titan_request = {
-                    "taskType": "TEXT_IMAGE",
-                    "textToImageParams": {
-                        "text": titan_prompt,
-                        "negativeText": "blurry, low quality, distorted, text overlay"
-                    },
-                    "imageGenerationConfig": {
-                        "numberOfImages": 1,
-                        "quality": "premium",
-                        "height": 1024,
-                        "width": 1024,
-                        "cfgScale": 8.0,
-                        "seed": int(time.time()) % 2147483647
-                    }
-                }
-                
-                titan_response = bedrock_client.invoke_model(
-                    modelId="amazon.titan-image-generator-v1",
-                    body=json.dumps(titan_request)
-                )
-                
-                titan_response_body = json.loads(titan_response['body'].read())
-                
-                if titan_response_body.get('images'):
-                    titan_image_b64 = titan_response_body['images'][0]
-                    titan_image_bytes = base64.b64decode(titan_image_b64)
-                    
-                    titan_filename = (
-                        DIAGRAM_OUTPUT_DIR
-                        / f"titan_diagram_{uuid4().hex[:8]}_{int(time.time())}.png"
-                    )
-                    
-                    with open(titan_filename, "wb") as f:
-                        f.write(titan_image_bytes)
-                    
-                    saved_images.append(str(titan_filename))
-                    print(f"✅ Saved Titan-generated diagram to {titan_filename}")
-                    text_parts.append(f"\n\n🎨 Generated visual diagram using Amazon Titan Image Generator")
-                    
-            except Exception as e:
-                print(f"⚠️ Titan image generation failed: {e}")
-                text_parts.append(f"\n\nNote: Visual diagram generation with Titan was attempted but encountered an issue.")
+        # Check if MCP tool saved files to /tmp and copy them to our output directory
+        if tmp_diagram_dir.exists():
+            new_files = set(tmp_diagram_dir.glob("*.png")) - existing_files
+            print(f"Found {len(new_files)} new diagram(s) in /tmp/generated-diagrams")
+            
+            for tmp_file in new_files:
+                try:
+                    import shutil
+                    # Create a clean filename
+                    dest_filename = DIAGRAM_OUTPUT_DIR / tmp_file.name
+                    shutil.copy2(tmp_file, dest_filename)
+                    saved_images.append(str(dest_filename))
+                    print(f"✅ Copied diagram from /tmp to {dest_filename}")
+                except Exception as e:
+                    print(f"⚠️ Failed to copy {tmp_file}: {e}")
         
         # Fallback if no structured text was returned
         if not text_parts and isinstance(response.message, dict):

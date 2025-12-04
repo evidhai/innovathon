@@ -3,7 +3,7 @@ import json
 
 client = boto3.client('bedrock-agentcore', region_name='us-east-1')
 payload = json.dumps({
-        "input": "Hello what is ec2",
+        "input": "Generate 3 tier architecture for a web application include db vpc and public ec2 flow.",
         "user_id": "test_user",
         "session_id": "34567897890123456789012345678901234",
         "context": {}
@@ -12,7 +12,7 @@ payload = json.dumps({
 try:
     response = client.invoke_agent_runtime(
         agentRuntimeArn='arn:aws:bedrock-agentcore:us-east-1:095059577505:runtime/migration_agent-yss0vU3nxI',
-        runtimeSessionId='dfmeoagmreaklgmrkleafremoigrmtesogmtrskhmtkrlshmtyurtq',  # Must be 33+ chars
+        runtimeSessionId='dfmeoagmreaklgmrkleafremoigrmtesogmtrskhmtkrlshmtyurtqyu',  # Must be 33+ chars
         payload=payload,
         qualifier="DEFAULT"  # Optional
     )
