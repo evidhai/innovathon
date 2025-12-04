@@ -3,11 +3,8 @@ agents:
   migration_agent:
     name: migration_agent
     entrypoint: /Users/vasan/2 Areas/Repo/innovathon/migration_agent/migration_agent.py
-    deployment_type: container
-    runtime_type: null
     platform: linux/arm64
     container_runtime: none
-    source_path: null
     aws:
       execution_role: arn:aws:iam::095059577505:role/AmazonBedrockAgentCoreSDKRuntime-us-east-1-1f9cc3803e
       execution_role_auto_create: false
@@ -15,18 +12,12 @@ agents:
       region: us-east-1
       ecr_repository: 095059577505.dkr.ecr.us-east-1.amazonaws.com/bedrock-agentcore-migration_agent
       ecr_auto_create: false
-      s3_path: null
-      s3_auto_create: false
       network_configuration:
         network_mode: PUBLIC
-        network_mode_config: null
       protocol_configuration:
         server_protocol: HTTP
       observability:
         enabled: true
-      lifecycle_configuration:
-        idle_runtime_session_timeout: null
-        max_lifetime: null
     bedrock_agentcore:
       agent_id: migration_agent-yss0vU3nxI
       agent_arn: arn:aws:bedrock-agentcore:us-east-1:095059577505:runtime/migration_agent-yss0vU3nxI
@@ -35,31 +26,14 @@ agents:
       project_name: bedrock-agentcore-migration_agent-builder
       execution_role: arn:aws:iam::095059577505:role/AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-1f9cc3803e
       source_bucket: bedrock-agentcore-codebuild-sources-095059577505-us-east-1
-    memory:
-      mode: NO_MEMORY
-      memory_id: null
-      memory_arn: null
-      memory_name: null
-      event_expiry_days: 30
-      first_invoke_memory_check_done: false
-      was_created_by_toolkit: false
-    identity:
-      credential_providers: []
-      workload: null
     authorizer_configuration: null
     request_header_configuration: null
     oauth_configuration: null
-    api_key_env_var_name: null
-    api_key_credential_provider_name: null
-    is_generated_by_agentcore_create: false
   orchestrator_agent:
     name: orchestrator_agent
     entrypoint: /Users/vasan/2 Areas/Repo/innovathon/migration_agent/orchestrator.py
-    deployment_type: container
-    runtime_type: null
     platform: linux/arm64
     container_runtime: none
-    source_path: null
     aws:
       execution_role: arn:aws:iam::095059577505:role/AmazonBedrockAgentCoreSDKRuntime-us-east-1-00cafffea8
       execution_role_auto_create: false
@@ -67,18 +41,12 @@ agents:
       region: us-east-1
       ecr_repository: 095059577505.dkr.ecr.us-east-1.amazonaws.com/bedrock-agentcore-orchestrator_agent
       ecr_auto_create: false
-      s3_path: null
-      s3_auto_create: false
       network_configuration:
         network_mode: PUBLIC
-        network_mode_config: null
       protocol_configuration:
         server_protocol: HTTP
       observability:
         enabled: true
-      lifecycle_configuration:
-        idle_runtime_session_timeout: null
-        max_lifetime: null
     bedrock_agentcore:
       agent_id: orchestrator_agent-wGURHA9Rcw
       agent_arn: arn:aws:bedrock-agentcore:us-east-1:095059577505:runtime/orchestrator_agent-wGURHA9Rcw
@@ -87,20 +55,35 @@ agents:
       project_name: bedrock-agentcore-orchestrator_agent-builder
       execution_role: arn:aws:iam::095059577505:role/AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-00cafffea8
       source_bucket: bedrock-agentcore-codebuild-sources-095059577505-us-east-1
-    memory:
-      mode: NO_MEMORY
-      memory_id: null
-      memory_arn: null
-      memory_name: null
-      event_expiry_days: 30
-      first_invoke_memory_check_done: false
-      was_created_by_toolkit: false
-    identity:
-      credential_providers: []
-      workload: null
     authorizer_configuration: null
     request_header_configuration: null
     oauth_configuration: null
-    api_key_env_var_name: null
-    api_key_credential_provider_name: null
-    is_generated_by_agentcore_create: false
+  diagram_agent:
+    name: diagram_agent
+    entrypoint: /Users/vasan/2 Areas/Repo/innovathon/migration_agent/diag_test.py
+    platform: linux/arm64
+    container_runtime: none
+    aws:
+      execution_role: arn:aws:iam::095059577505:role/AmazonBedrockAgentCoreSDKRuntime-us-east-1-ed781db1d2
+      execution_role_auto_create: false
+      account: 095059577505
+      region: us-east-1
+      ecr_repository: 095059577505.dkr.ecr.us-east-1.amazonaws.com/bedrock-agentcore-diagram_agent
+      ecr_auto_create: false
+      network_configuration:
+        network_mode: PUBLIC
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+    bedrock_agentcore:
+      agent_id: diagram_agent-SjZNtSCaIC
+      agent_arn: arn:aws:bedrock-agentcore:us-east-1:095059577505:runtime/diagram_agent-SjZNtSCaIC
+      agent_session_id: null
+    codebuild:
+      project_name: bedrock-agentcore-diagram_agent-builder
+      execution_role: arn:aws:iam::095059577505:role/AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-ed781db1d2
+      source_bucket: bedrock-agentcore-codebuild-sources-095059577505-us-east-1
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null

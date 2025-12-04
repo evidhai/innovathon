@@ -1,4 +1,8 @@
 import base64
+import boto3
+import json
+import logging
+import tempfile
 import threading
 import time
 from datetime import timedelta
@@ -8,10 +12,18 @@ from mcp import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.server import FastMCP
 from strands import Agent, tool
+from strands_tools import image_reader, use_aws
 from strands.tools.mcp import MCPClient
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from strands.hooks import AgentInitializedEvent, HookProvider, MessageAddedEvent
 from bedrock_agentcore.memory import MemoryClient
+from strands.models import BedrockModel
+import jschema_to_python
+
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = BedrockAgentCoreApp()
 
@@ -55,40 +67,62 @@ class SessionMemoryHookProvider(HookProvider):
 # Create session memory provider (no registry needed - pass directly to Agent)
 session_memory_provider = SessionMemoryHookProvider(memory_client)
 
-
-
-
+# Directory for storing generated diagrams - dynamic path based on script location
+import os
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DIAGRAM_OUTPUT_DIR = Path(os.path.join(SCRIPT_DIR, "generated-diagrams"))
+DIAGRAM_OUTPUT_DIR.mkdir(exist_ok=True)
 
 @tool
 def arch_diag_assistant(payload):
     """
     A Senior AWS Solutions Architect specializing in architecture diagrams.
-    Creates professional, well-structured AWS architecture diagrams that follow best practices.
+    Creates PNG architecture diagrams using AWS Diagram MCP server and optionally 
+    generates visual diagrams using Amazon Titan Image Generator.
     """
-    # Connect to an MCP server using stdio transport
-    stdio_mcp_client = MCPClient(
+    print(f"arch_diag_assistant called with payload: {payload}")
+    print(f"Diagram output directory: {DIAGRAM_OUTPUT_DIR}")
+    
+    # Track existing files before generation
+    import glob
+    tmp_diagram_dir = Path("/tmp/generated-diagrams")
+    existing_files = set()
+    if tmp_diagram_dir.exists():
+        existing_files = set(tmp_diagram_dir.glob("*.png"))
+    
+    # Connect to AWS Diagram MCP server with required dependencies
+    diagram_mcp_client = MCPClient(
         lambda: stdio_client(
             StdioServerParameters(
-                command="uvx", args=["awslabs.aws-diagram-mcp-server@latest"]
+                command="uvx",
+                args=[
+                    "--with", "jschema-to-python",
+                    "awslabs.aws-diagram-mcp-server@latest"
+                ]
             )
         )
     )
-    print("Initializing agent with AWS documentation tools...")
+    
+    print("Initializing architecture diagram agent with AWS diagram tools...")
+    
     # Keep the context manager alive
-    with stdio_mcp_client:
+    with diagram_mcp_client:
         # Get the tools from the MCP server
-        tools = stdio_mcp_client.list_tools_sync()
-        print(f"Loaded {len(tools)} tools from AWS documentation server")
-        # Create an agent with these tools
+        diagram_tools = diagram_mcp_client.list_tools_sync()
+        print(f"Loaded {len(diagram_tools)} diagram tools from AWS diagram server")
+        
+        # Create an agent with diagram tools using Claude (NOT Titan - Titan can't use tools)
+        bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1')
+        
         agent = Agent(
-            model="us.amazon.nova-pro-v1:0",
-            tools=tools,
+            model="us.anthropic.claude-3-7-sonnet-20250219-v1:0",  # Claude can use tools
+            tools=diagram_tools,
             system_prompt="""You are a Senior AWS Solutions Architect specializing in architecture diagrams.
             Your role is to create professional, well-structured AWS architecture diagrams that follow best practices.
-
+            
             When designing architectures:
-            - Use the AWS diagram tools to create clear, professional architecture diagrams
-            - Follow AWS Well-Architected Framework principles (security, reliability, performance, cost optimization, operational excellence)
+            - Use the generate_diagram tool ONCE to create a clear, professional architecture diagram in PNG format
+            - Follow AWS Well-Architected Framework principles
             - Include appropriate AWS services for high availability, scalability, and fault tolerance
             - Organize components into logical layers (presentation, application, data, etc.)
             - Show VPC boundaries, availability zones, and security groups where relevant
@@ -96,14 +130,70 @@ def arch_diag_assistant(payload):
             - Add monitoring and logging services (CloudWatch, CloudTrail)
             - Consider security best practices (IAM, encryption, least privilege)
             - Use industry-standard naming conventions and clear labels
-            - Provide brief explanations for key architectural decisions
-
+            - Generate only ONE diagram per request
+            
+            IMPORTANT: Call the generate_diagram tool only once. Do not create multiple versions or iterations.
             Generate production-ready, enterprise-grade architecture diagrams that demonstrate deep AWS expertise.
             """)
+        
         print("Agent initialized successfully!")
-        # Invoke the agent with the provided payload
+        
+        # Process the query with the diagram agent
         response = agent(payload)
-        return response.message['content'][0]['text']   
+        
+        # Extract text and any image payloads returned by the MCP tools
+        text_parts = []
+        saved_images = []
+        
+        for part in response.message.get("content", []):
+            if part.get("type") == "text" and "text" in part:
+                text_content = part["text"]
+                text_parts.append(text_content)
+                continue
+            
+            # Handle base64-encoded image parts from tools/models
+            b64_data = part.get("data") or part.get("base64_data") or part.get("base64")
+            if b64_data:
+                try:
+                    image_bytes = base64.b64decode(b64_data)
+                    ext = (part.get("format") or "png").replace(".", "")
+                    filename = (
+                        DIAGRAM_OUTPUT_DIR
+                        / f"diagram_{uuid4().hex[:8]}_{int(time.time())}.{ext}"
+                    )
+                    with open(filename, "wb") as f:
+                        f.write(image_bytes)
+                    saved_images.append(str(filename))
+                    print(f"✅ Saved diagram to {filename}")
+                except Exception as e:
+                    text_parts.append(f"[Warning] Failed to decode image payload: {e}")
+        
+        # Check if MCP tool saved files to /tmp and copy them to our output directory
+        if tmp_diagram_dir.exists():
+            new_files = set(tmp_diagram_dir.glob("*.png")) - existing_files
+            print(f"Found {len(new_files)} new diagram(s) in /tmp/generated-diagrams")
+            
+            for tmp_file in new_files:
+                try:
+                    import shutil
+                    # Create a clean filename
+                    dest_filename = DIAGRAM_OUTPUT_DIR / tmp_file.name
+                    shutil.copy2(tmp_file, dest_filename)
+                    saved_images.append(str(dest_filename))
+                    print(f"✅ Copied diagram from /tmp to {dest_filename}")
+                except Exception as e:
+                    print(f"⚠️ Failed to copy {tmp_file}: {e}")
+        
+        # Fallback if no structured text was returned
+        if not text_parts and isinstance(response.message, dict):
+            fallback = response.message.get("content") or response.message
+            text_parts.append(str(fallback))
+        
+        result = "\n\n".join(text_parts).strip()
+        if saved_images:
+            result = f"{result}\n\n📁 Saved diagram files:\n" + "\n".join(f"  - {img}" for img in saved_images)
+        
+        return result   
 
 @tool
 def cost_assistant(payload):
@@ -227,7 +317,9 @@ migration_agent = Agent(
     tools=[
         cost_assistant,
         aws_docs_assistant,
-        arch_diag_assistant,],
+        arch_diag_assistant,
+        image_reader,
+        use_aws],
 )
 
 @app.entrypoint
@@ -236,9 +328,15 @@ def migration_assistant(payload):
     An AWS Migration Specialist that helps users plan and execute migrations from on-premises to AWS cloud.
     """
     # Invoke the migration agent with the provided payload
-    user_input = payload.get("input") or payload.get("prompt")
-    user_id = payload.get("user_id", "unknown")
-    context = payload.get("context", {})
+    # Handle both dict and string inputs
+    if isinstance(payload, str):
+        user_input = payload
+        user_id = "unknown"
+        context = {}
+    else:
+        user_input = payload.get("input") or payload.get("prompt")
+        user_id = payload.get("user_id", "unknown")
+        context = payload.get("context", {})
     
     # Create or retrieve session ID
     session_id = context.get("session_id") or f"session_{user_id}_{int(time.time())}"
@@ -248,26 +346,9 @@ def migration_assistant(payload):
     print(f"Session ID: {session_id}")
     print(f"Input: {user_input}")
     
-    # Retrieve conversation history from memory
-    try:
-        conversation_history = memory_client.get_memories(
-            session_id=session_id,
-            memory_type="short_term",
-            limit=10  # Last 10 messages
-        )
-        
-        if conversation_history:
-            print(f"📚 Retrieved {len(conversation_history)} previous messages from session")
-            # Add context to the agent about previous conversation
-            history_context = "\n\nPrevious conversation context:\n"
-            for mem in conversation_history[-5:]:  # Last 5 for context
-                content = mem.get('content', {})
-                history_context += f"{content.get('role', 'user')}: {content.get('content', '')[:100]}...\n"
-            
-            # Prepend history to user input
-            user_input = history_context + "\n\nCurrent query: " + user_input
-    except Exception as e:
-        print(f"⚠️ Could not retrieve session history: {e}")
+    # Note: Session memory retrieval is handled automatically by the hook provider
+    # The memory_client stores messages via the MessageAddedEvent hook
+    # No need to manually retrieve and prepend history
     
     # Process the query
     response = migration_agent(user_input)
