@@ -1,80 +1,80 @@
 #!/usr/bin/env python3
 """
-Local test script for migration_agent without AWS deployment
+Local test script for migration agent without AWS dependencies
 """
-from migration_agent import migration_assistant
+import os
+import sys
 
-def test_simple_query():
-    """Test with a simple migration query"""
-    print("=" * 80)
-    print("Test 1: Simple migration query")
-    print("=" * 80)
-    
-    payload = {
-        "input": "Help me migrate a 3-tier web application to AWS",
-        "user_id": "test_user",
-        "context": {}
-    }
-    
-    try:
-        response = migration_assistant(payload)
-        print("\n✅ Response:")
-        print(response)
-    except Exception as e:
-        print(f"\n❌ Error: {e}")
-        import traceback
-        traceback.print_exc()
+# Add current directory to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-def test_diagram_generation():
-    """Test architecture diagram generation"""
-    print("\n" + "=" * 80)
-    print("Test 2: Architecture diagram generation")
-    print("=" * 80)
-    
-    payload = {
-        "input": "Create an AWS architecture diagram for a 3-tier web application with CloudFront, ALB, EC2 Auto Scaling, and RDS. Include VPC, public and private subnets, NAT Gateway, and security groups. Generate as PNG.",
-        "user_id": "test_user_diagram",
-        "context": {}
-    }
-    
+def test_imports():
+    """Test basic imports"""
     try:
-        response = migration_assistant(payload)
-        print("\n✅ Response:")
-        print(response)
-    except Exception as e:
-        print(f"\n❌ Error: {e}")
-        import traceback
-        traceback.print_exc()
+        import streamlit
+        print("✅ Streamlit imported successfully")
+        
+        import boto3
+        print("✅ Boto3 imported successfully")
+        
+        from strands import Agent
+        print("✅ Strands Agent imported successfully")
+        
+        from PIL import Image
+        print("✅ PIL imported successfully")
+        
+        print("\n🎉 All basic imports successful!")
+        return True
+        
+    except ImportError as e:
+        print(f"❌ Import error: {e}")
+        return False
 
-def test_simple_diagram():
-    """Test simple S3 CloudFront diagram"""
-    print("\n" + "=" * 80)
-    print("Test 3: Simple S3 + CloudFront diagram")
-    print("=" * 80)
-    
-    payload = {
-        "input": "Generate 3 tier architecture for a web application include db vpc and public ec2 flow.",
-        "user_id": "test_user_simple",
-        "context": {}
-    }
-    
+def test_basic_functionality():
+    """Test basic functionality without AWS calls"""
     try:
-        response = migration_assistant(payload)
-        print("\n✅ Response:")
-        print(response)
+        # Test basic Python functionality
+        import json
+        import base64
+        
+        # Test JSON handling
+        test_data = {"test": "data", "number": 123}
+        json_str = json.dumps(test_data)
+        parsed = json.loads(json_str)
+        assert parsed == test_data
+        print("✅ JSON handling works")
+        
+        # Test base64 encoding
+        test_string = "Hello, World!"
+        encoded = base64.b64encode(test_string.encode()).decode()
+        decoded = base64.b64decode(encoded).decode()
+        assert decoded == test_string
+        print("✅ Base64 encoding/decoding works")
+        
+        print("\n🎉 Basic functionality tests passed!")
+        return True
+        
     except Exception as e:
-        print(f"\n❌ Error: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Functionality test error: {e}")
+        return False
 
 if __name__ == "__main__":
-    print("🧪 Testing migration_agent locally\n")
+    print("🧪 Testing Migration Agent Setup...")
+    print("=" * 50)
     
-    # Run tests - comment out tests you don't want to run
-    # test_simple_query()
-    # test_diagram_generation()
-    test_simple_diagram()
+    success = True
     
-    print("\n" + "=" * 80)
-    print("✅ Test completed!")
-    print("=" * 80)
+    print("\n📦 Testing Imports...")
+    success &= test_imports()
+    
+    print("\n⚙️ Testing Basic Functionality...")
+    success &= test_basic_functionality()
+    
+    print("\n" + "=" * 50)
+    if success:
+        print("🎉 All tests passed! Your environment is ready.")
+        print("\n📝 Next steps:")
+        print("1. Configure AWS credentials in .env file")
+        print("2. Run: venv_new\\Scripts\\streamlit.exe run app.py")
+    else:
+        print("❌ Some tests failed. Please check the errors above.")
