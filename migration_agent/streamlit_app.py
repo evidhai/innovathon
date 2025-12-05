@@ -6,7 +6,9 @@ import json
 import time
 import sys
 import os
+import threading
 from pathlib import Path
+from queue import Queue, Empty
 
 # Add the current directory to Python path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -28,17 +30,167 @@ st.set_page_config(
 # Custom CSS
 st.markdown("""
     <style>
-    .main {
-        padding: 2rem;
+    /* Import Google Fonts */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
     }
+
+    /* Main container styling */
+    .main {
+        background-color: #f8f9fa;
+        color: #1e1e1e;
+    }
+
+    /* Primary text and headers */
+    h1, h2, h3 {
+        color: #232f3e; /* AWS Dark Blue */
+        font-weight: 700;
+    }
+    
+    h1 {
+        margin-bottom: 0.5rem;
+    }
+
+    /* Subheader styling */
+    .subheader {
+        color: #d13212; /* AWS Orange accent */
+        font-weight: 600;
+        margin-top: 1.5rem;
+    }
+
+    /* Button Styling */
     .stButton>button {
         width: 100%;
+        border-radius: 8px;
+        font-weight: 600;
+        transition: all 0.2s ease;
+        border: none;
     }
+
+    /* Primary Buttons (simulated via CSS targeting generic classes if specific isn't available, 
+       but Streamlit's primaryColor handles the main action buttons usually. 
+       We'll add hover effects) */
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    /* Sidebar Styling */
+    [data-testid="stSidebar"] {
+        background-color: #232f3e; /* AWS Dark Blue */
+        border-right: 1px solid #1a232e;
+    }
+    
+    /* Force white text for all sidebar elements */
+    [data-testid="stSidebar"] h1, 
+    [data-testid="stSidebar"] h2, 
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] .stMarkdown,
+    [data-testid="stSidebar"] div[data-testid="stMetricValue"],
+    [data-testid="stSidebar"] div[data-testid="stMetricLabel"],
+    [data-testid="stSidebar"] summary,
+    [data-testid="stSidebar"] summary > div,
+    [data-testid="stSidebar"] summary span,
+    [data-testid="stSidebar"] summary svg {
+        color: #ffffff !important;
+        fill: #ffffff !important; /* For SVGs in expander */
+    }
+    
+    /* Fix background of expander to be transparent so white text shows */
+    [data-testid="stSidebar"] details {
+        background-color: transparent !important;
+        border-color: rgba(255,255,255,0.2) !important;
+    }
+    
+    [data-testid="stSidebar"] summary {
+        background-color: transparent !important;
+    }
+    
+    [data-testid="stSidebar"] summary:hover {
+        background-color: rgba(255,255,255,0.1) !important;
+        color: #ffffff !important;
+    }
+    
+    /* Input fields in sidebar - keep text dark on white background */
+    [data-testid="stSidebar"] input {
+        color: #232f3e !important;
+    }
+    
+    /* Buttons in Sidebar - Make them distinct */
+    [data-testid="stSidebar"] button {
+        background-color: #f0f2f6;
+        color: #232f3e !important; /* Dark text for contrast on light button */
+        border: none;
+    }
+    
+    [data-testid="stSidebar"] button p {
+        color: #232f3e !important;
+    }
+    
+    [data-testid="stSidebar"] button:hover {
+        background-color: #ffffff;
+    }
+
+    /* Diagram Container */
     .diagram-container {
-        border: 2px solid #e0e0e0;
-        border-radius: 10px;
+        border: 1px solid #e1e4e8;
+        border-radius: 12px;
+        padding: 1.5rem;
+        background: white;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        margin: 1.5rem 0;
+    }
+
+    /* Chat Message Styling */
+    .stChatMessage {
+        border-radius: 12px;
         padding: 1rem;
-        margin: 1rem 0;
+        margin-bottom: 1rem;
+    }
+    
+    div[data-testid="stChatMessageContent"] {
+        background-color: transparent;
+    }
+
+    /* User Message Background */
+    div[data-testid="chatAvatarIcon-user"] {
+        background-color: #f0f2f6;
+    }
+
+    /* Assistant Message Background */
+    div[data-testid="chatAvatarIcon-assistant"] {
+        background-color: #ff9900; /* AWS Orange */
+    }
+    
+    /* Footer Styling */
+    .footer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        background-color: #ffffff;
+        color: #666; 
+        text-align: center;
+        padding: 1rem 0; 
+        font-size: 0.85rem;
+        border-top: 1px solid #eee;
+        z-index: 1000;
+    }
+    
+    /* Ensure content isn't hidden behind footer */
+    .block-container {
+        padding-bottom: 5rem;
+    }
+    
+    /* Adjust chat input position to not be hidden by footer */
+    [data-testid="stBottom"] {
+        bottom: 4rem;
+        background-color: transparent;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -54,59 +206,57 @@ if 'stop_processing' not in st.session_state:
     st.session_state.stop_processing = False
 
 # Sidebar
+
 with st.sidebar:
     st.title("⚙️ Settings")
     
-    st.subheader("User Information")
-    user_id = st.text_input("User ID", value="streamlit_user")
+    with st.expander("👤 User Profile", expanded=True):
+        user_id = st.text_input("User ID", value="streamlit_user")
     
-    st.subheader("Session Info")
-    st.info(f"Session ID: {st.session_state.session_id}")
+    st.divider()
     
-    if st.button("🔄 New Session"):
-        st.session_state.chat_history = []
-        st.session_state.session_id = f"session_{int(time.time())}"
-        st.session_state.known_diagrams = set()  # Clear known diagrams
-        st.rerun()
-    
-    if st.button("🔍 Refresh Diagrams"):
-        st.session_state.known_diagrams = set()  # Clear to re-detect all diagrams
-        st.info("Diagrams cache cleared! Send a new message to see all diagrams.")
+    st.subheader("Session Management")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔄 New", help="Start a new session"):
+            st.session_state.chat_history = []
+            st.session_state.session_id = f"session_{int(time.time())}"
+            st.session_state.known_diagrams = set()
+            st.rerun()
+    with col2:
+        if st.button("🗑️ Clear", help="Refresh/Clear Diagram Cache"):
+            st.session_state.known_diagrams = set()
+            st.rerun()
+            
+    st.caption(f"Session ID: `{st.session_state.session_id}`")
     
     st.divider()
     
     # Diagram status
-    st.subheader("📊 Diagram Status")
+    st.subheader("📊 Diagrams")
     if DIAGRAM_DIR.exists():
         all_pngs = list(DIAGRAM_DIR.glob("*.png"))
-        st.metric("Total Diagrams", len(all_pngs))
-        if all_pngs:
-            latest = max(all_pngs, key=lambda x: x.stat().st_mtime)
-            st.caption(f"Latest: {latest.name}")
+        st.metric("Generated Diagrams", len(all_pngs))
     else:
         st.warning("Diagram directory not found")
     
     st.divider()
     
-    st.subheader("Quick Actions")
+    st.subheader("🚀 Sample Prompts")
     example_prompts = {
-        "🚀 Simple Migration": "Help me migrate a 3-tier web application from on-premises to AWS",
-        "💰 Cost Estimate": "What's the monthly cost for running EC2 t3.medium and RDS MySQL db.t3.medium in us-east-1?",
-        "📊 Architecture Diagram": "Create an AWS architecture diagram for a serverless web application using S3, CloudFront, API Gateway, and Lambda",
-        "📚 AWS Service Info": "Explain AWS Database Migration Service and how it helps with migrations",
-        "🏗️ Migration Strategy": "What are the best practices for migrating a monolithic application to microservices on AWS?",
+        "Simple Migration": "Help me migrate a 3-tier web application from on-premises to AWS",
+        "Cost Estimate": "What's the monthly cost for running EC2 t3.medium and RDS MySQL db.t3.medium in us-east-1?",
+        "Architecture Diagram": "Create an AWS architecture diagram for a serverless web application using S3, CloudFront, API Gateway, and Lambda",
+        "AWS Service Info": "Explain AWS Database Migration Service and how it helps with migrations",
     }
     
     for label, prompt in example_prompts.items():
-        if st.button(label):
+        if st.button(label, use_container_width=True):
             st.session_state.current_prompt = prompt
 
 # Main content
 st.title("☁️ AWS Migration Assistant")
 st.markdown("### Your intelligent companion for AWS cloud migration")
-
-# Chat input
-user_input = st.chat_input("Ask about AWS migration, costs, architecture, or services...")
 
 # Display chat history
 for i, message in enumerate(st.session_state.chat_history):
@@ -147,6 +297,10 @@ for i, message in enumerate(st.session_state.chat_history):
                             except Exception as e:
                                 st.error(f"Error loading image: {e}")
 
+# Chat input
+user_input = st.chat_input("Ask about AWS migration, costs, architecture, or services...")
+
+
 # Handle example prompt from sidebar
 if 'current_prompt' in st.session_state and st.session_state.current_prompt:
     user_input = st.session_state.current_prompt
@@ -170,34 +324,12 @@ if user_input:
     with st.chat_message("assistant", avatar="☁️"):
         response_placeholder = st.empty()
         status_container = st.container()
-        stop_button_container = st.container()
-        
-        # Add stop button
-        with stop_button_container:
-            if st.button("⏹️ Stop Processing", key="stop_btn", type="secondary"):
-                st.session_state.stop_processing = True
-                st.warning("⚠️ Stop requested - processing will terminate...")
         
         try:
-            # Check stop flag before starting
-            if st.session_state.stop_processing:
-                response_placeholder.warning("Processing stopped by user")
-                st.session_state.chat_history.append({
-                    "role": "assistant",
-                    "content": "⚠️ Processing stopped by user",
-                    "diagrams": []
-                })
-                st.stop()
-            
             # Show status updates
             with status_container:
                 status = st.status("Processing your request...", expanded=True)
                 status.write("🔧 Initializing migration assistant...")
-            
-            # Check stop flag
-            if st.session_state.stop_processing:
-                status.update(label="Stopped by user", state="error")
-                raise InterruptedError("Processing stopped by user")
             
             # Prepare payload matching migration_agent.py's expected structure
             payload = {
@@ -211,13 +343,75 @@ if user_input:
             with status_container:
                 status.write("💭 Analyzing your request...")
             
-            # Check stop flag before API call
-            if st.session_state.stop_processing:
-                status.update(label="Stopped by user", state="error")
-                raise InterruptedError("Processing stopped by user")
+            # Run migration assistant in a separate thread with timeout capability
+            result_queue = Queue()
+            exception_queue = Queue()
             
-            # Get response from migration assistant
-            response = migration_assistant(payload)
+            def run_assistant():
+                try:
+                    # Run async function in new event loop
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    result = loop.run_until_complete(migration_assistant(payload))
+                    loop.close()
+                    result_queue.put(result)
+                except Exception as e:
+                    exception_queue.put(e)
+            
+            # Start the thread
+            assistant_thread = threading.Thread(target=run_assistant, daemon=True)
+            assistant_thread.start()
+            
+            # Add stop button that actually works
+            stop_button_placeholder = st.empty()
+            response = None
+            timeout = 300  # 5 minutes timeout
+            start_time = time.time()
+            poll_count = 0
+            
+            # Poll for results with stop button
+            while assistant_thread.is_alive():
+                poll_count += 1
+                # Check if stop button is pressed
+                with stop_button_placeholder.container():
+                    if st.button("⏹️ Stop Processing", key=f"stop_btn_{st.session_state.session_id}_{poll_count}", type="secondary"):
+                        st.session_state.stop_processing = True
+                        with status_container:
+                            status.update(label="Stopping...", state="error")
+                        # Thread will continue but we'll abandon it
+                        raise InterruptedError("Processing stopped by user")
+                
+                # Check timeout
+                if time.time() - start_time > timeout:
+                    raise TimeoutError(f"Processing timed out after {timeout} seconds")
+                
+                # Check if result is ready
+                try:
+                    response = result_queue.get(timeout=0.1)
+                    break
+                except Empty:
+                    pass
+                
+                # Check if exception occurred
+                try:
+                    exc = exception_queue.get_nowait()
+                    raise exc
+                except Empty:
+                    pass
+                
+                time.sleep(0.1)
+            
+            # Clear stop button
+            stop_button_placeholder.empty()
+            
+            # Get result if thread finished
+            if response is None and not exception_queue.empty():
+                raise exception_queue.get()
+            elif response is None and not result_queue.empty():
+                response = result_queue.get()
+            elif response is None:
+                raise RuntimeError("No response received from assistant")
             
             # Parse response - handle both string and structured responses
             if isinstance(response, dict):
@@ -255,44 +449,37 @@ if user_input:
                 if recent_diagrams:
                     st.divider()
                     st.subheader("📊 Generated Architecture Diagrams")
-                    st.caption(f"Found {len(recent_diagrams)} new diagram(s) for this request")
-                    
-                    # Display diagrams in columns (max 2 per row)
-                    for idx in range(0, len(recent_diagrams), 2):
-                        cols = st.columns(2)
-                        for col_idx, diagram_path in enumerate(recent_diagrams[idx:idx+2]):
-                            with cols[col_idx]:
-                                try:
-                                    img = Image.open(diagram_path)
-                                    st.image(img, caption=diagram_path.name, use_container_width=True)
-                                    
-                                    with open(diagram_path, "rb") as f:
-                                        st.download_button(
-                                            label="⬇️ Download PNG",
-                                            data=f,
-                                            file_name=diagram_path.name,
-                                            mime="image/png",
-                                            key=f"download_latest_{int(time.time())}_{idx}_{col_idx}",
-                                            use_container_width=True
-                                        )
-                                    diagrams.append(str(diagram_path))
-                                except Exception as e:
-                                    st.error(f"Error loading image {diagram_path.name}: {e}")
-                else:
-                    # Debug: Show why no diagrams were found
-                    with st.expander("🔍 Diagram Debug Info"):
-                        st.write(f"Total PNG files: {len(all_diagrams)}")
-                        st.write(f"Known diagrams: {len(st.session_state.known_diagrams)}")
-                        if all_diagrams:
-                            st.write("Recent files:")
-                            for f in all_diagrams[:5]:
-                                st.code(f"{f.name} - {time.ctime(f.stat().st_mtime)}")
-            
             # Add assistant message to chat history
             st.session_state.chat_history.append({
                 "role": "assistant",
                 "content": response_text,
                 "diagrams": diagrams
+            })
+        
+        except InterruptedError:
+            with status_container:
+                status.update(label="Stopped by user", state="error", expanded=False)
+            
+            error_msg = "⚠️ **Processing Stopped**\n\nYou stopped the processing. The backend thread will complete in the background."
+            response_placeholder.warning(error_msg)
+            
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "content": error_msg,
+                "diagrams": []
+            })
+        
+        except TimeoutError as e:
+            with status_container:
+                status.update(label="Timeout", state="error", expanded=False)
+            
+            error_msg = f"⏱️ **Timeout**\n\n{str(e)}"
+            response_placeholder.error(error_msg)
+            
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "content": error_msg,
+                "diagrams": []
             })
             
         except Exception as e:
@@ -316,11 +503,33 @@ if user_input:
                 "content": error_msg,
                 "diagrams": []
             })
+            error_detail = traceback.format_exc()
+            
+            with status_container:
+                status.update(label="Error occurred", state="error", expanded=True)
+                status.write(f"❌ {str(e)}")
+            
+            error_msg = f"**Error Processing Request**\n\n{str(e)}"
+            
+            # Show detailed error in expander
+            with st.expander("🔍 View Error Details"):
+                st.code(error_detail, language="python")
+            
+            response_placeholder.error(error_msg)
+            
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "content": error_msg,
+                "diagrams": []
+            })
 
-# Footer
+# Footer after input
 st.divider()
+
+
 st.markdown("""
-    <div style='text-align: center; color: #666; padding: 1rem;'>
-        <small>AWS Migration Assistant | Powered by Amazon Bedrock & Claude</small>
+    <div class='footer'>
+        AWS Migration Assistant | Powered by Amazon Bedrock & Claude <br>
+        <small>© 2025 IBM Innovathon</small>
     </div>
     """, unsafe_allow_html=True)

@@ -5,6 +5,7 @@ import logging
 import tempfile
 import threading
 import time
+import asyncio
 from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -321,9 +322,8 @@ migration_agent = Agent(
         image_reader,
         use_aws],
 )
-
 @app.entrypoint
-def migration_assistant(payload):
+async def migration_assistant(payload):
     """
     An AWS Migration Specialist that helps users plan and execute migrations from on-premises to AWS cloud.
     """
@@ -350,10 +350,12 @@ def migration_assistant(payload):
     # The memory_client stores messages via the MessageAddedEvent hook
     # No need to manually retrieve and prepend history
     
-    # Process the query
-    response = migration_agent(user_input)
+    # Process the query - run in thread pool to avoid blocking
+    loop = asyncio.get_event_loop()
+    response = await loop.run_in_executor(None, migration_agent, user_input)
     
     # Return structured response
+    return response.message['content'][0]['text']
     return response.message['content'][0]['text']
 
 if __name__ == "__main__":
