@@ -122,17 +122,17 @@ st.markdown("""
     }
     
     /* Buttons in Sidebar - Make them distinct */
-    [data-testid="stSidebar"] button {
+    [data-testid="stSidebar"] .stButton button {
         background-color: #f0f2f6;
         color: #232f3e !important; /* Dark text for contrast on light button */
         border: none;
     }
     
-    [data-testid="stSidebar"] button p {
+    [data-testid="stSidebar"] .stButton button p {
         color: #232f3e !important;
     }
     
-    [data-testid="stSidebar"] button:hover {
+    [data-testid="stSidebar"] .stButton button:hover {
         background-color: #ffffff;
     }
 
