@@ -294,6 +294,7 @@ def aws_docs_assistant(payload):
         print(f"Loaded {len(tools)} tools from AWS documentation server")
 
         # Create an agent with these tools
+        
         agent = Agent(
             model="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
             tools=tools,
