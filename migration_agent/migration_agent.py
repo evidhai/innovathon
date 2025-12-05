@@ -74,6 +74,115 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DIAGRAM_OUTPUT_DIR = Path(os.path.join(SCRIPT_DIR, "generated-diagrams"))
 DIAGRAM_OUTPUT_DIR.mkdir(exist_ok=True)
 
+
+
+@tool
+def hld_lld_input_agent(payload):
+    """
+    Input agent that processes High Level Design (HLD) and Low Level Design (LLD) images
+    using Amazon Nova Vision for image analysis and Amazon Titan Text for structured output.
+    """
+    print(f"HLD/LLD Input Agent called with payload: {payload}")
+
+    # Initialize Bedrock client
+    try:
+        bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1')
+    except Exception as e:
+        return f"Error initializing AWS Bedrock client for HLD/LLD analysis: {str(e)}. Please configure AWS credentials."
+
+    try:
+        # Extract image data from payload
+        image_data = None
+        image_format = "png"
+        user_query = ""
+
+        if isinstance(payload, dict):
+            # Handle base64 encoded image
+            if "image_data" in payload:
+                image_data = payload["image_data"]
+                image_format = payload.get("image_format", "png")
+            elif "image_base64" in payload:
+                image_data = payload["image_base64"]
+                image_format = payload.get("image_format", "png")
+
+            user_query = payload.get("query", payload.get("input", ""))
+        elif isinstance(payload, str):
+            user_query = payload
+
+        if not image_data and not user_query:
+            return "Please provide either an image (HLD/LLD) or a query about architecture design."
+
+        # Process image with Nova Vision if image data is provided
+        vision_analysis = ""
+        if image_data:
+            print("Processing image with Amazon Nova Vision...")
+
+            # Ensure image_data is properly decoded if it's base64 string
+            if isinstance(image_data, str):
+                try:
+                    image_bytes = base64.b64decode(image_data)
+                except Exception as e:
+                    return f"Error decoding image data: {str(e)}"
+            else:
+                image_bytes = image_data
+
+            # Prepare Nova Vision request
+            nova_request = {
+                "modelId": "us.amazon.nova-pro-v1:0",
+                "contentType": "application/json",
+                "accept": "application/json",
+                "body": json.dumps({
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "text": """Analyze this High Level Design (HLD) or Low Level Design (LLD) architecture diagram. 
+                                    Extract and identify:
+                                    1. System components and their relationships
+                                    2. Data flow and communication patterns
+                                    3. Technology stack and frameworks mentioned
+                                    4. AWS Cloud equivalent services
+                                    5. Integration points and APIs
+                                    6. Security considerations visible
+                                    7. Scalability and performance aspects
+                                    8. Database and storage requirements
+                                    
+                                    Provide a detailed technical analysis suitable for cloud migration planning."""
+                                },
+                                {
+                                    "image": {
+                                        "format": image_format,
+                                        "source": {
+                                            "bytes": base64.b64encode(image_bytes).decode() if isinstance(image_bytes, bytes) else image_bytes
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    ],
+                    "inferenceConfig": {
+                        "max_new_tokens": 2000,
+                        "temperature": 0.1
+                    }
+                })
+            }
+
+            # Call Nova Vision
+            nova_response = bedrock_client.invoke_model(**nova_request)
+            nova_result = json.loads(nova_response['body'].read())
+            vision_analysis = nova_result['output']['message']['content'][0]['text']
+            print("✅ Nova Vision analysis completed")
+            return vision_analysis
+
+    except Exception as e:
+        print(f"❌ Error in HLD/LLD analysis: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return f"Error analyzing architecture diagram: {str(e)}"
+
+
+
 @tool
 def arch_diag_assistant(payload):
     """
@@ -320,7 +429,8 @@ migration_agent = Agent(
         aws_docs_assistant,
         arch_diag_assistant,
         image_reader,
-        use_aws],
+        use_aws,
+        hld_lld_input_agent],
 )
 @app.entrypoint
 async def migration_assistant(payload):
@@ -350,6 +460,27 @@ async def migration_assistant(payload):
     # The memory_client stores messages via the MessageAddedEvent hook
     # No need to manually retrieve and prepend history
     
+    # Process image if included in payload
+    if isinstance(payload, dict) and ("image_data" in payload or "image_base64" in payload):
+        print("📸 Image detected in payload, running visual analysis...")
+        try:
+            # We can call the tool function directly since it's just a python function decorated with @tool
+            # But we need to pass the full payload as it expects
+            vision_analysis = hld_lld_input_agent(payload)
+            
+            # Enrich the user input with the vision analysis
+            user_input = f"""USER QUERY: {user_input}
+            
+VISUAL ANALYSIS OF UPLOADED IMAGE:
+{vision_analysis}
+            
+Please use the visual analysis above to answer the user's query about the attached architecture diagram."""
+            
+            print("✅ Visual analysis integrated into prompt")
+        except Exception as e:
+            print(f"⚠️ Error processing image: {e}")
+            user_input = f"{user_input}\n\n[System Note: User uploaded an image but analysis failed: {str(e)}]"
+
     # Process the query - run in thread pool to avoid blocking
     loop = asyncio.get_event_loop()
     response = await loop.run_in_executor(None, migration_agent, user_input)

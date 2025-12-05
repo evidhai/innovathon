@@ -201,7 +201,10 @@ if 'chat_history' not in st.session_state:
 if 'session_id' not in st.session_state:
     st.session_state.session_id = f"session_{int(time.time())}"
 if 'known_diagrams' not in st.session_state:
-    st.session_state.known_diagrams = set()
+    if DIAGRAM_DIR.exists():
+        st.session_state.known_diagrams = set(str(f) for f in DIAGRAM_DIR.glob("*.png"))
+    else:
+        st.session_state.known_diagrams = set()
 if 'stop_processing' not in st.session_state:
     st.session_state.stop_processing = False
 
@@ -221,7 +224,12 @@ with st.sidebar:
         if st.button("🔄 New", help="Start a new session"):
             st.session_state.chat_history = []
             st.session_state.session_id = f"session_{int(time.time())}"
-            st.session_state.known_diagrams = set()
+            # Reset known diagrams to current files so we don't show old ones
+            if DIAGRAM_DIR.exists():
+                st.session_state.known_diagrams = set(str(f) for f in DIAGRAM_DIR.glob("*.png"))
+            else:
+                st.session_state.known_diagrams = set()
+            st.session_state.uploader_key += 1 # Reset uploader
             st.rerun()
     with col2:
         if st.button("🗑️ Clear", help="Refresh/Clear Diagram Cache"):
@@ -297,6 +305,30 @@ for i, message in enumerate(st.session_state.chat_history):
                             except Exception as e:
                                 st.error(f"Error loading image: {e}")
 
+# Initialize uploader key for resetting
+if 'uploader_key' not in st.session_state:
+    st.session_state.uploader_key = 0
+
+# Chat Input Area with Attachment
+# Use columns to position the attachment button close to the text area if possible
+# Note: st.chat_input is always at bottom, so we put the uploader just above it.
+
+# Container for attachment UI
+with st.container():
+    col1, col2 = st.columns([0.05, 0.95])
+    with col1:
+        # Attachment popover
+        with st.popover("📎", help="Attach Architecture Diagram (HLD/LLD)"):
+            uploaded_file = st.file_uploader(
+                "Upload architecture diagram", 
+                type=['png', 'jpg', 'jpeg'],
+                key=f"uploader_{st.session_state.uploader_key}"
+            )
+            
+            if uploaded_file:
+                st.success("Image attached! It will be analyzed with your message.")
+                st.image(uploaded_file, caption="Preview", width=200)
+
 # Chat input
 user_input = st.chat_input("Ask about AWS migration, costs, architecture, or services...")
 
@@ -310,15 +342,37 @@ if user_input:
     # Reset stop flag
     st.session_state.stop_processing = False
     
+    # Process attached image if any
+    image_payload = {}
+    user_display_content = user_input
+    
+    if uploaded_file:
+        import base64
+        # Convert to base64
+        bytes_data = uploaded_file.getvalue()
+        base64_image = base64.b64encode(bytes_data).decode('utf-8')
+        image_format = uploaded_file.type.split('/')[-1]
+        
+        image_payload = {
+            "image_data": base64_image,
+            "image_base64": base64_image, # Redundant but safe
+            "image_format": image_format
+        }
+        
+        # Add note to display
+        user_display_content += f"\n\n*📎 [Attached Image: {uploaded_file.name}]*"
+    
     # Add user message to chat history
     st.session_state.chat_history.append({
         "role": "user",
-        "content": user_input
+        "content": user_display_content
     })
     
     # Display user message
     with st.chat_message("user"):
-        st.markdown(user_input)
+        st.markdown(user_display_content)
+        if uploaded_file:
+            st.image(uploaded_file, width=300)
     
     # Display assistant response
     with st.chat_message("assistant", avatar="☁️"):
@@ -330,6 +384,8 @@ if user_input:
             with status_container:
                 status = st.status("Processing your request...", expanded=True)
                 status.write("🔧 Initializing migration assistant...")
+                if uploaded_file:
+                    status.write("🖼️ Uploading and analyzing architecture diagram...")
             
             # Prepare payload matching migration_agent.py's expected structure
             payload = {
@@ -339,6 +395,14 @@ if user_input:
                     "session_id": st.session_state.session_id
                 }
             }
+            
+            # Merge image data if present
+            if image_payload:
+                payload.update(image_payload)
+            
+            # Increment uploader key to clear it for next turn
+            if uploaded_file:
+                st.session_state.uploader_key += 1
             
             with status_container:
                 status.write("💭 Analyzing your request...")
@@ -442,13 +506,38 @@ if user_input:
                     if str(f) not in st.session_state.known_diagrams
                 ]
                 
+                # Update diagrams list for this message
+                diagrams = [str(f) for f in recent_diagrams]
+                
                 # Update known diagrams set
                 for f in all_diagrams:
                     st.session_state.known_diagrams.add(str(f))
                 
-                if recent_diagrams:
+                if diagrams:
                     st.divider()
                     st.subheader("📊 Generated Architecture Diagrams")
+                    
+                    # Display diagrams
+                    for idx in range(0, len(diagrams), 2):
+                        cols = st.columns(2)
+                        for col_idx, diagram_path in enumerate(diagrams[idx:idx+2]):
+                            with cols[col_idx]:
+                                try:
+                                    if Path(diagram_path).exists():
+                                        img = Image.open(diagram_path)
+                                        st.image(img, caption=Path(diagram_path).name, use_container_width=True)
+                                        
+                                        with open(diagram_path, "rb") as f:
+                                            st.download_button(
+                                                label="⬇️ Download PNG",
+                                                data=f,
+                                                file_name=Path(diagram_path).name,
+                                                mime="image/png",
+                                                key=f"new_download_{st.session_state.session_id}_{Path(diagram_path).name}",
+                                                use_container_width=True
+                                            )
+                                except Exception as e:
+                                    st.error(f"Error displaying image: {e}")
             # Add assistant message to chat history
             st.session_state.chat_history.append({
                 "role": "assistant",
