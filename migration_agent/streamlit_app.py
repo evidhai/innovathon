@@ -18,6 +18,8 @@ from PIL import Image
 
 # Use absolute path for diagram directory
 DIAGRAM_DIR = Path(__file__).parent / "generated-diagrams"
+HISTORY_DIR = Path(__file__).parent / "chat_histories"
+HISTORY_DIR.mkdir(exist_ok=True)
 
 # Page configuration
 st.set_page_config(
@@ -192,14 +194,72 @@ st.markdown("""
         bottom: 4rem;
         background-color: transparent;
     }
+
+    /* Floating attachment button - Target the popover container directly */
+    /* We exclude sidebar popovers if any exist, ensuring we only target the main chat one */
+    [data-testid="stAppViewContainer"] > .main [data-testid="stPopover"] {
+        position: fixed;
+        bottom: 4.5rem; /* Just above the chat input padding */
+        left: 2rem; /* Initial left position */
+        z-index: 1000;
+        width: auto;
+    }
+    
+    /* Style the button inside to look circular/icon-like if needed, 
+       but standard button is fine. Adjust left position for wider screens? 
+       Streamlit centers content, so fixed left:2rem might look odd on wide screens.
+       Better to try to align with center. But 'left: 2rem' ensures it's accessible.
+    */
+
+    /* Attachment status pill */
+    .attachment-pill {
+        display: inline-flex;
+        align-items: center;
+        background-color: #e6f3ff;
+        color: #0073bb;
+        padding: 0.25rem 0.75rem;
+        border-radius: 1rem;
+        font-size: 0.85rem;
+        border: 1px solid #0073bb;
+        margin-bottom: 0.5rem;
+    }
     </style>
     """, unsafe_allow_html=True)
 
+def load_history(session_id):
+    history_file = HISTORY_DIR / f"{session_id}.json"
+    if history_file.exists():
+        try:
+            with open(history_file, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading history: {e}")
+    return []
+
+def save_history(session_id, history):
+    history_file = HISTORY_DIR / f"{session_id}.json"
+    try:
+        with open(history_file, "w") as f:
+            json.dump(history, f)
+    except Exception as e:
+        print(f"Error saving history: {e}")
+
 # Initialize session state
-if 'chat_history' not in st.session_state:
+
+# Check for session_id in query params
+if "session_id" in st.query_params:
+    session_id = st.query_params["session_id"]
+    if 'session_id' not in st.session_state or st.session_state.session_id != session_id:
+        st.session_state.session_id = session_id
+        st.session_state.chat_history = load_history(session_id)
+elif 'session_id' not in st.session_state:
+    new_id = f"session_{int(time.time())}"
+    st.session_state.session_id = new_id
     st.session_state.chat_history = []
-if 'session_id' not in st.session_state:
-    st.session_state.session_id = f"session_{int(time.time())}"
+    st.query_params["session_id"] = new_id
+
+if 'chat_history' not in st.session_state:
+     st.session_state.chat_history = []
 if 'known_diagrams' not in st.session_state:
     if DIAGRAM_DIR.exists():
         st.session_state.known_diagrams = set(str(f) for f in DIAGRAM_DIR.glob("*.png"))
@@ -223,7 +283,9 @@ with st.sidebar:
     with col1:
         if st.button("🔄 New", help="Start a new session"):
             st.session_state.chat_history = []
-            st.session_state.session_id = f"session_{int(time.time())}"
+            new_id = f"session_{int(time.time())}"
+            st.session_state.session_id = new_id
+            st.query_params["session_id"] = new_id
             # Reset known diagrams to current files so we don't show old ones
             if DIAGRAM_DIR.exists():
                 st.session_state.known_diagrams = set(str(f) for f in DIAGRAM_DIR.glob("*.png"))
@@ -256,6 +318,7 @@ with st.sidebar:
         "Cost Estimate": "What's the monthly cost for running EC2 t3.medium and RDS MySQL db.t3.medium in us-east-1?",
         "Architecture Diagram": "Create an AWS architecture diagram for a serverless web application using S3, CloudFront, API Gateway, and Lambda",
         "AWS Service Info": "Explain AWS Database Migration Service and how it helps with migrations",
+        "VPC Subnet Calculator": "Calculate the number of subnets needed for a VPC with a CIDR block of 10.0.0.0/16 and 3 Availability Zones",
     }
     
     for label, prompt in example_prompts.items():
@@ -310,24 +373,23 @@ if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
 # Chat Input Area with Attachment
-# Use columns to position the attachment button close to the text area if possible
-# Note: st.chat_input is always at bottom, so we put the uploader just above it.
+# Floating popover handled by CSS
+with st.popover("📎", help="Attach Architecture Diagram (HLD/LLD)"):
+    uploaded_file = st.file_uploader(
+        "Upload architecture diagram", 
+        type=['png', 'jpg', 'jpeg'],
+        key=f"uploader_{st.session_state.uploader_key}"
+    )
 
-# Container for attachment UI
-with st.container():
-    col1, col2 = st.columns([0.05, 0.95])
-    with col1:
-        # Attachment popover
-        with st.popover("📎", help="Attach Architecture Diagram (HLD/LLD)"):
-            uploaded_file = st.file_uploader(
-                "Upload architecture diagram", 
-                type=['png', 'jpg', 'jpeg'],
-                key=f"uploader_{st.session_state.uploader_key}"
-            )
-            
-            if uploaded_file:
-                st.success("Image attached! It will be analyzed with your message.")
-                st.image(uploaded_file, caption="Preview", width=200)
+# Status pill for attached file
+if uploaded_file:
+    st.markdown(f"""
+        <div style="position: fixed; bottom: 7rem; left: 2rem; z-index: 1000;">
+            <span class="attachment-pill">
+                📎 Attached: {uploaded_file.name}
+            </span>
+        </div>
+    """, unsafe_allow_html=True)
 
 # Chat input
 user_input = st.chat_input("Ask about AWS migration, costs, architecture, or services...")
@@ -367,6 +429,7 @@ if user_input:
         "role": "user",
         "content": user_display_content
     })
+    save_history(st.session_state.session_id, st.session_state.chat_history)
     
     # Display user message
     with st.chat_message("user"):
@@ -544,6 +607,7 @@ if user_input:
                 "content": response_text,
                 "diagrams": diagrams
             })
+            save_history(st.session_state.session_id, st.session_state.chat_history)
         
         except InterruptedError:
             with status_container:
@@ -557,6 +621,7 @@ if user_input:
                 "content": error_msg,
                 "diagrams": []
             })
+            save_history(st.session_state.session_id, st.session_state.chat_history)
         
         except TimeoutError as e:
             with status_container:
@@ -570,6 +635,7 @@ if user_input:
                 "content": error_msg,
                 "diagrams": []
             })
+            save_history(st.session_state.session_id, st.session_state.chat_history)
             
         except Exception as e:
             import traceback
@@ -592,6 +658,7 @@ if user_input:
                 "content": error_msg,
                 "diagrams": []
             })
+            save_history(st.session_state.session_id, st.session_state.chat_history)
             error_detail = traceback.format_exc()
             
             with status_container:

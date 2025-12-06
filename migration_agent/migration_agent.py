@@ -6,9 +6,17 @@ import tempfile
 import threading
 import time
 import asyncio
+import ipaddress
+import math
+import os
+import requests
 from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 from mcp import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.server import FastMCP
@@ -356,6 +364,8 @@ def cost_assistant(payload):
         # Invoke the agent with the provided payload
         response = agent(payload)
         return response.message['content'][0]['text']
+
+
     
 @tool
 def aws_docs_assistant(payload):
@@ -403,6 +413,157 @@ def aws_docs_assistant(payload):
         return response.message['content'][0]['text']
 
 
+
+
+@tool
+def vpc_subnet_calculator(payload):
+    """
+    Calculates optimized VPC subnet ranges for a given CIDR block.
+    
+    Args:
+        payload (dict): {
+            "cidr": "10.0.0.0/16",  # The VPC CIDR block
+            "az_count": 2,          # Number of Availability Zones (default: 2)
+            "tiers": ["Public", "App", "DB"] # List of tier names (default: Public, Private, Data)
+        }
+    """
+    print(f"vpc_subnet_calculator called with payload: {payload}")
+    
+    try:
+        # Parse inputs with defaults
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except:
+                # If string input is just CIDR, use defaults
+                if "/" in payload:
+                    payload = {"cidr": payload}
+                else:
+                    return "Please provide a valid JSON payload or CIDR string (e.g., '10.0.0.0/16')"
+
+        vpc_cidr = payload.get("cidr")
+        if not vpc_cidr:
+            return "Error: strict 'cidr' parameter is required."
+
+        az_count = int(payload.get("az_count", 2))
+        tiers = payload.get("tiers", ["Public", "Private", "Database"])
+        
+        # Calculate total subnets needed
+        total_subnets_needed = len(tiers) * az_count
+        
+        # Calculate next power of 2 for splitting
+        # e.g. need 6 subnets -> next power of 2 is 8 (2^3)
+        split_bits = math.ceil(math.log2(total_subnets_needed))
+        
+        # Create network object
+        network = ipaddress.ip_network(vpc_cidr)
+        new_prefix = network.prefixlen + split_bits
+        
+        if new_prefix > 30:
+            return f"Error: CIDR {vpc_cidr} is too small to split into {total_subnets_needed} subnets."
+            
+        # Generate subnets
+        subnets = list(network.subnets(new_prefix=new_prefix))
+        
+        # Format output
+        output = [f"### 🌐 VPC Subnet Plan: {vpc_cidr}"]
+        output.append(f"**Configuration**: {az_count} AZs, {len(tiers)} Tiers ({', '.join(tiers)})")
+        output.append(f"**Subnet Mask**: /{new_prefix} ({subnets[0].num_addresses - 5} usable IPs per subnet)\n")
+        
+        output.append("| Tier | Availability Zone | CIDR Block | Usable IPs |")
+        output.append("|---|---|---|---|")
+        
+        subnet_idx = 0
+        az_names = ["a", "b", "c", "d", "e", "f"]
+        
+        for tier in tiers:
+            for az_i in range(az_count):
+                if subnet_idx < len(subnets):
+                    sn = subnets[subnet_idx]
+                    az_suffix = az_names[az_i % len(az_names)]
+                    output.append(f"| {tier} | AZ-{az_suffix} | `{sn}` | {sn.num_addresses - 5} |")
+                    subnet_idx += 1
+        
+        unused = len(subnets) - subnet_idx
+        if unused > 0:
+            output.append(f"\n*Remaining spare capacity: {unused} x /{new_prefix} subnets available for future expansion.*")
+            
+        return "\n".join(output)
+
+    except ValueError as e:
+        return f"Error calculating subnets: {str(e)}"
+    except Exception as e:
+        return f"Unexpected error: {str(e)}"
+
+
+# @tool
+# def confluence_search(payload):
+#     """
+#     Searches internal Confluence documentation for migration standards and guidelines.
+    
+#     Args:
+#         payload (str/dict): JSON dict {"query": "search terms"} or just the query string.
+#     """
+#     print(f"confluence_search called with payload: {payload}")
+    
+#     # Configuration from env vars
+#     base_url = os.getenv("CONFLUENCE_URL")
+#     username = os.getenv("CONFLUENCE_USERNAME")
+#     api_key = os.getenv("CONFLUENCE_API_KEY")
+#     if not all([base_url, username, api_key]):
+#         return "Confluence integration is not configured. Missing CONFLUENCE_URL, CONFLUENCE_USERNAME, or CONFLUENCE_API_KEY environment variables."
+
+#     # Parse query
+#     query = ""
+#     if isinstance(payload, dict):
+#         query = payload.get("query", payload.get("input", ""))
+#     else:
+#         query = str(payload)
+        
+#     if not query:
+#         return "Please provide a search query."
+
+#     try:
+#         # Search via CQL
+#         search_url = f"{base_url.rstrip('/')}/rest/api/content/search"
+#         cql = f'text ~ "{query}" AND type = "page"'
+#         params = {
+#             "cql": cql,
+#             "limit": 3,
+#             "expand": "body.storage" # Fetch content
+#         }
+        
+#         auth = (username, api_key)
+#         response = requests.get(search_url, params=params, auth=auth, timeout=10)
+        
+#         if response.status_code != 200:
+#             return f"Error searching Confluence: {response.status_code} - {response.text}"
+            
+#         results = response.json().get("results", [])
+        
+#         if not results:
+#             return f"No Confluence documents found for '{query}'."
+            
+#         # Format results
+#         output = [f"### 📚 Confluence Search Results for: '{query}'\n"]
+#         for page in results:
+#             title = page.get("title", "Untitled")
+#             link = f"{base_url.rstrip('/')}{page.get('_links', {}).get('webui', '')}"
+#             # Extract basic text from body (simplified)
+#             body_html = page.get("body", {}).get("storage", {}).get("value", "")
+#             # Simple tag stripping for snippet (in production use BeautifulSoup)
+#             import re
+#             text_preview = re.sub('<[^<]+?>', '', body_html)[:500] + "..."
+            
+#             output.append(f"**[{title}]({link})**")
+#             output.append(f"> {text_preview}\n")
+            
+#         return "\n".join(output)
+
+#     except Exception as e:
+#         return f"Error accessing Confluence: {str(e)}"
+
+
 migration_system_prompt = """You are an expert AWS Migration Specialist and Cloud Architect.
 Your goal is to guide users through the complex process of migrating on-premises workloads to AWS with confidence and clarity.
 
@@ -415,7 +576,12 @@ Your goal is to guide users through the complex process of migrating on-premises
     *   *Database*: Managed (RDS/DynamoDB) vs. Self-hosted?
 3.  **Recommend & Plan**: Suggest appropriate migration strategies (Re-host, Re-platform, Re-factor) and AWS services.
 4.  **Cost & Best Practices**: Always consider TCO (Total Cost of Ownership) and the AWS Well-Architected Framework (Security, Reliability, Performance).
-
+5.  **IP Conservation & Optimization**: The user is operating in a **Private IPv4 Resource Crunch**.
+    *   **ALWAYS** recommend the **minimal viable** subnet size.
+    *   *Example*: For a single Lambda/small workload in one AZ, suggest a **/28** (16 IPs) instead of a standard /24.
+    *   Refer to official AWS documentation for specific service ENI requirements before suggesting ranges.
+6.  **Subnet Validations**: Before calculating VPC subnets, ask for the VPC CIDR block and the number of Availability Zones if not provided.
+7.  ** Refer confluence for more details**: Use the `confluence_search` tool to search for more details.when comes to org specific info asked"
 ### Operational Rules
 *   **Step-by-Step Approach**: Don't overwhelm the user. Break complex migrations into logical phases.
 *   **Diagram Generation Constraint**: **DO NOT** generate an architecture diagram until the user has **confirmed and finalized** the proposed service stack. Use the `arch_diag_assistant` only after this confirmation.
@@ -440,7 +606,10 @@ migration_agent = Agent(
         arch_diag_assistant,
         image_reader,
         use_aws,
-        hld_lld_input_agent],
+        hld_lld_input_agent,
+        vpc_subnet_calculator,
+        # confluence_search
+        ],
 )
 @app.entrypoint
 async def migration_assistant(payload):
